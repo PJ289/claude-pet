@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { ContextUsage, Mood } from '../types'
-import { DEFAULT_VIEW, stripHeight, svg, widthFor } from './desktop'
+import { DEFAULT_VIEW, meterSvg, stageSvg, stageWidth, stripHeight } from './desktop'
 import type { View } from './desktop'
 import { COLUMNS } from './frames'
 import { ROWS, cells, newWalker, step } from './terminal'
@@ -130,9 +130,13 @@ async function refreshContext($: EngineInterface) {
     percent: usage.context.percent ?? 0,
     tokens: usage.context.tokens ?? 0,
     window: usage.context.window,
-    ...(limit === undefined ? {} : { limitPercent: limit.percentUsed }),
-    ...(week === undefined ? {} : { weekPercent: week.percentUsed }),
+    ...(limit === undefined ? {} : { limitPercent: Math.round(limit.percentUsed) }),
+    ...(week === undefined ? {} : { weekPercent: Math.round(week.percentUsed) }),
   }
+  // Only a change in what is shown is written: a write redraws the band.
+  const shown = ({ tokens, ...rest }: ContextUsage) => JSON.stringify(rest)
+  const before = await read($, context)
+  if (before !== null && shown(before) === shown(next)) return
   await update($, context, () => next)
 }
 
@@ -213,7 +217,10 @@ export const register: Register = (on, options) => {
 
     await refreshContext($)
     await refreshNight($)
-    $.clock.every(30_000, () => void dozeOff($))
+    $.clock.every(30_000, () => {
+      void dozeOff($)
+      void refreshContext($)
+    })
     $.clock.every(5 * 60_000, () => void refreshNight($))
     if (e.surface === 'terminal') {
       $.clock.every(TICK_MS, () => void paint($))
@@ -379,9 +386,6 @@ export const register: Register = (on, options) => {
 
     if (e.surface === 'desktop') {
       const { Box, Svg } = $.ui.resolve(e)
-      // Sized outright: left to itself the animated frame is 300px wide and
-      // shrinks the art to fit.
-      const width = widthFor(e.props.bodyColumns)
       const view: View = {
         ...DEFAULT_VIEW,
         ...pet.view,
@@ -391,16 +395,37 @@ export const register: Register = (on, options) => {
         isNight: await read($, isNight),
         hasIntro: now - pet.workStart < INTRO_MS,
       }
+      const height = stripHeight(view.scale)
+      // Two drawings, each sized outright (left to itself the animated frame
+      // is 300px wide and shrinks the art): the stage at the pet's end of the
+      // band, the meter at the other, so a new reading leaves the pet's
+      // animation running.
+      const stage = (
+        <Svg
+          key="stage"
+          source={stageSvg(current, view)}
+          alt={`Your pixel pet is ${current}`}
+          width={stageWidth(view)}
+          height={height}
+          isInteractive
+        />
+      )
+      const meter = view.hasMeter ? (
+        <Svg
+          key="meter"
+          source={meterSvg(view)}
+          alt={`Context ${usage?.percent ?? 0}%`}
+          width={232}
+          height={height}
+          isInteractive
+        />
+      ) : null
+      const isLeft = view.side === 'left'
 
       return (
-        <Box alignItems="flex-end">
-          <Svg
-            source={svg(current, width, view)}
-            alt={`Your pixel pet is ${current}`}
-            width={width}
-            height={stripHeight(view.scale)}
-            isInteractive
-          />
+        <Box width="100%" flexDirection="row" justifyContent="space-between" alignItems="flex-end">
+          {isLeft ? stage : meter}
+          {isLeft ? meter : stage}
         </Box>
       )
     }

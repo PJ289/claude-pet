@@ -59,8 +59,9 @@ test('the pet draws on the terminal and on the desktop', async ($, on) => {
   const art = await desktop.find({ type: 'Svg' })
   expect(String(art?.props.source)).toContain('<svg')
   expect(String(art?.props.alt)).toContain('idle')
-  // The context meter rides along, at the fill the session reports.
-  expect(String(art?.props.source)).toContain('>37%<')
+  // The context meter is a drawing of its own, at the fill the session reports.
+  const meter = await desktop.find({ type: 'Svg', key: 'meter' })
+  expect(String(meter?.props.source)).toContain('>37%<')
   await desktop.unmount()
 })
 
@@ -128,13 +129,14 @@ test('the options place and size the pet', { options: { size: '4', side: 'right'
   await $.session.start({ cwd: '/', surface: null, isInteractive: true })
 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  const art = await ui.find({ type: 'Svg' })
+  const art = await ui.find({ type: 'Svg', key: 'stage' })
   // Four pixels per art pixel: the strip is 14 rows of 4 plus 4.
   expect(art?.props.height).toBe(60)
   // No pile, so no 100% line; the battery and the week ride along with the meter.
   expect(String(art?.props.source)).not.toContain('>100%<')
-  expect(String(art?.props.source)).toContain('>41%<')
-  expect(String(art?.props.source)).toContain('>43%<')
+  const meter = await ui.find({ type: 'Svg', key: 'meter' })
+  expect(String(meter?.props.source)).toContain('>41%<')
+  expect(String(meter?.props.source)).toContain('>43%<')
   await ui.unmount()
 })
 

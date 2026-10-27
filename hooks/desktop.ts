@@ -742,6 +742,44 @@ const SCENES: Record<Mood, (view: View) => string> = {
 }
 
 
+// The strip as two drawings, so a change in one leaves the other's
+// animation running: the stage (pet, pile, minis) and the meter.
+const METER_W = 232
+
+export function stageWidth(view: View): number {
+  const s = view.scale
+  const minis = view.agents > 0 ? Math.min(3, view.agents) * 34 + (view.agents > 3 ? 24 : 0) + 14 : 0
+
+  return 6 + COLUMNS * s + (view.hasPile ? 4 * s + 9 * s + 40 : 8) + minis + 8
+}
+
+export function stageSvg(mood: Mood, view: View): string {
+  const width = stageWidth(view)
+  layout(view, width)
+
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${STRIP_H}" viewBox="0 0 ${width} ${STRIP_H}" shape-rendering="crispEdges" style="display:block">` +
+    `<g font-family="ui-monospace, Menlo, Consolas, monospace">` +
+    floor() +
+    (view.hasPile ? pile(view.context, mood === 'compacting') : '') +
+    minis(view.agents, view.hasPile) +
+    clickable(SCENES[mood](view)) +
+    (view.isNight ? night() : '') +
+    `</g></svg>`
+  )
+}
+
+export function meterSvg(view: View): string {
+  layout(view, METER_W)
+  const dim = view.isNight ? `<rect x="0" y="0" width="${METER_W}" height="${STRIP_H}" fill="#0B0B1A" opacity="0.22"/>` : ''
+
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${METER_W}" height="${STRIP_H}" viewBox="0 0 ${METER_W} ${STRIP_H}" shape-rendering="crispEdges" style="display:block">` +
+    `<g font-family="ui-monospace, Menlo, Consolas, monospace">${meter(view.context)}${dim}</g></svg>`
+  )
+}
+
+// Everything in one drawing, for a preview page.
 export function svg(mood: Mood, width: number, view: View = DEFAULT_VIEW): string {
   layout(view, width)
 
