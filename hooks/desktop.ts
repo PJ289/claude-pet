@@ -92,48 +92,151 @@ function floor(width: number): string {
   )
 }
 
-// A click on the pet, all inside the drawing, where SMIL hears it and
-// nothing reaches the hooks: on the head it hops and a heart floats up; on
-// the body it hops and spins right round.
+// Pixel glyphs that pop up over the pet: a heart, a "!", a note.
 const HEART = ['.OO.OO.', 'OOOOOOO', 'OOOOOOO', '.OOOOO.', '..OOO..', '...O...']
-const SPIN_S = 0.36
-function clickable(body: string): string {
-  const heart = HEART.map((row, y) => {
-    let out = ''
-    let x = 0
-    while (x < row.length) {
-      let end = x
-      while (end < row.length && row[end] === 'O') end += 1
-      if (end > x) out += `<rect x="${px(x)}" y="${px(y)}" width="${px(end - x)}" height="${SCALE}" fill="#E8566E"/>`
-      x = end > x ? end : x + 1
-    }
+const BANG = ['O', 'O', 'O', 'O', '.', 'O']
+function glyph(rows: string[], color: string): string {
+  return rows
+    .map((row, y) => {
+      let out = ''
+      let x = 0
+      while (x < row.length) {
+        let end = x
+        while (end < row.length && row[end] === 'O') end += 1
+        if (end > x) out += `<rect x="${px(x)}" y="${px(y)}" width="${px(end - x)}" height="${SCALE}" fill="${color}"/>`
+        x = end > x ? end : x + 1
+      }
 
-    return out
-  }).join('')
-  const spin = clip(
-    [
-      { grid: front(0), ms: 60 },
-      { grid: SIDE_R, ms: 75 },
-      { grid: BACK, ms: 90 },
-      { grid: SIDE_L, ms: 75 },
-      { grid: front(0), ms: 60 },
-    ],
-    { begin: 'spin.click', repeat: 1, isHeld: false },
+      return out
+    })
+    .join('')
+}
+
+// Something rising over the pet's head when `on` fires: in for `seconds`.
+function popup(body: string, on: string, seconds: number, x: number, y: number): string {
+  return (
+    `<g transform="translate(${px(x) + STAGE_X} ${TOP + px(y)})" opacity="0">` +
+    `<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.6;1" dur="${fmt(seconds)}s" begin="${on}"/>` +
+    `<animateTransform attributeName="transform" type="translate" values="0 0;0 -8" dur="${fmt(seconds)}s" begin="${on}" additive="sum"/>` +
+    `${body}</g>`
   )
-  const headZone = TOP + px(10)
+}
+
+const HOP = (on: string) =>
+  `<animateTransform attributeName="transform" type="translate" values="0 0;0 -7;0 0" keyTimes="0;0.45;1" dur="0.42s" begin="${on}" calcMode="spline" keySplines="0.2 0.8 0.4 1;0.6 0 0.8 0.2" additive="sum"/>`
+
+// One click reaction: what the stage does, frames that take the scene's
+// place for `hideSeconds`, and what pops up.
+type Reaction = { id: string; stage: string; frames?: Step[]; hideSeconds?: number; popup?: string }
+
+// A click on the pet, all inside the drawing, where SMIL hears it and
+// nothing reaches the hooks. Which reaction plays is luck: the hit areas
+// take turns being the visible one, a few times a second.
+function clickable(body: string): string {
+  const reactions: Reaction[] = [
+    {
+      id: 'heart',
+      stage: HOP('heart.click'),
+      popup: popup(glyph(HEART, '#E8566E'), 'heart.click', 1.1, 8.5, 1),
+    },
+    {
+      id: 'spin',
+      stage: HOP('spin.click'),
+      hideSeconds: 0.36,
+      frames: [
+        { grid: front(0), ms: 60 },
+        { grid: SIDE_R, ms: 75 },
+        { grid: BACK, ms: 90 },
+        { grid: SIDE_L, ms: 75 },
+        { grid: front(0), ms: 60 },
+      ],
+    },
+    {
+      id: 'startle',
+      stage: `<animateTransform attributeName="transform" type="translate" values="0 0;4 0;3 0;0 0" keyTimes="0;0.3;0.7;1" dur="0.3s" begin="startle.click" additive="sum"/>`,
+      hideSeconds: 0.45,
+      frames: [
+        { grid: CROUCH, ms: 300 },
+        { grid: front('closed'), ms: 150 },
+      ],
+      popup: popup(glyph(BANG, '#D06A4B'), 'startle.click', 0.8, 15, 0),
+    },
+    {
+      id: 'dance',
+      stage: `<animateTransform attributeName="transform" type="translate" values="0 0;-3 0;0 0;3 0;0 0;-3 0;0 0;3 0;0 0" dur="1.2s" begin="dance.click" additive="sum"/>`,
+      hideSeconds: 1.2,
+      frames: Array.from({ length: 8 }, (_, i) => ({ grid: front(i % 4 < 2 ? -1 : 1, i % 2 ? 'stepB' : 'stepA'), ms: 150 })),
+      popup: popup(`<text x="0" y="${px(2)}" font-size="12" font-weight="bold" fill="#D06A4B">♪</text>`, 'dance.click', 1.2, 17, 2),
+    },
+    {
+      id: 'wave',
+      stage: '',
+      hideSeconds: 0.6,
+      frames: [
+        { grid: STRETCH, ms: 150 },
+        { grid: front(0), ms: 150 },
+        { grid: STRETCH, ms: 150 },
+        { grid: front(0), ms: 150 },
+      ],
+    },
+  ]
+  const hides = reactions
+    .filter(r => r.hideSeconds !== undefined)
+    .map(r => `<set attributeName="opacity" to="0" begin="${r.id}.click" dur="${fmt(r.hideSeconds ?? 0)}s"/>`)
+    .join('')
+  const frames = reactions
+    .filter(r => r.frames !== undefined)
+    .map(r => stage(clip(r.frames ?? [], { begin: `${r.id}.click`, repeat: 1, isHeld: false })))
+    .join('')
+  const period = 0.1 * reactions.length
+  const hits = reactions
+    .map((r, i) => {
+      const values = reactions.map((_, j) => (j === i ? 'visible' : 'hidden')).join(';')
+      const keyTimes = reactions.map((_, j) => fmt(j / reactions.length)).join(';')
+
+      return (
+        `<rect id="${r.id}" x="0" y="0" width="${FRAME_W + STAGE_X}" height="${STRIP_H}" fill="#fff" fill-opacity="0" style="cursor:pointer">` +
+        `<animate attributeName="visibility" values="${values}" keyTimes="${keyTimes}" dur="${fmt(period)}s" calcMode="discrete" repeatCount="indefinite"/></rect>`
+      )
+    })
+    .join('')
 
   return (
-    `<g><animateTransform attributeName="transform" type="translate" values="0 0;0 -7;0 0" keyTimes="0;0.45;1" dur="0.42s" begin="hit.click; spin.click" calcMode="spline" keySplines="0.2 0.8 0.4 1;0.6 0 0.8 0.2" additive="sum"/>` +
-    `<g><set attributeName="opacity" to="0" begin="spin.click" dur="${SPIN_S}s"/>${body}</g>` +
-    stage(spin) +
-    `</g>` +
-    `<g transform="translate(${px(8.5) + STAGE_X} ${TOP + px(1)})" opacity="0">` +
-    `<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.6;1" dur="1.1s" begin="hit.click"/>` +
-    `<animateTransform attributeName="transform" type="translate" values="0 0;0 -8" dur="1.1s" begin="hit.click" additive="sum"/>` +
-    `${heart}</g>` +
-    `<rect id="hit" x="0" y="0" width="${FRAME_W + STAGE_X}" height="${headZone}" fill="#fff" fill-opacity="0" style="cursor:pointer"/>` +
-    `<rect id="spin" x="0" y="${headZone}" width="${FRAME_W + STAGE_X}" height="${STRIP_H - headZone}" fill="#fff" fill-opacity="0" style="cursor:pointer"/>`
+    `<g>${reactions.map(r => r.stage).join('')}` +
+    `<g>${hides}${body}</g>${frames}</g>` +
+    reactions.map(r => r.popup ?? '').join('') +
+    hits
   )
+}
+
+// The pet's in-tray: a pile of papers beside it that grows with the
+// context window, under a dashed line where 100% is. The sheets near the
+// top take the meter's amber and red; past 90% the pile sways.
+const PILE_X = 104
+const PILE_SHEETS = 13
+const SHEET_W = 27
+function pile(context: ContextUsage | null): string {
+  const percent = context === null ? 0 : Math.max(0, Math.min(100, context.percent))
+  const sheets = Math.round((percent / 100) * PILE_SHEETS)
+  const ceiling = FLOOR_Y - PILE_SHEETS * SCALE - 2
+  // A dotted post from the floor to the line, so the room left is legible.
+  let out = `<line x1="${PILE_X - 6}" x2="${PILE_X - 6}" y1="${ceiling}" y2="${FLOOR_Y}" stroke="#9A9A96" stroke-opacity="0.35" stroke-dasharray="1 2"/>`
+  out += `<line x1="${PILE_X - 6}" x2="${PILE_X + SHEET_W + 6}" y1="${ceiling}" y2="${ceiling}" stroke="#9A9A96" stroke-opacity="0.55" stroke-dasharray="2 2"/>`
+  out += `<text x="${PILE_X + SHEET_W + 9}" y="${ceiling + 3}" font-size="8" fill="#9A9A96">100%</text>`
+  let sheetsOut = ''
+  for (let i = 0; i < sheets; i++) {
+    const share = ((i + 1) / PILE_SHEETS) * 100
+    const tint = share > 90 ? '#E06C75' : share > 70 ? '#E8C547' : i % 2 ? '#D6D6D2' : '#EDEDEA'
+    const jog = [0, 2, -1, 1, -2, 1, 0, 2, -1, 1, -2, 0, 1][i] ?? 0
+    const y = FLOOR_Y - (i + 1) * SCALE
+    sheetsOut += `<rect x="${PILE_X + jog}" y="${y}" width="${SHEET_W}" height="${SCALE - 1}" fill="${tint}"/>`
+  }
+  const sway =
+    percent >= 90
+      ? `<animateTransform attributeName="transform" type="rotate" values="0 ${PILE_X + SHEET_W / 2} ${FLOOR_Y};-2 ${PILE_X + SHEET_W / 2} ${FLOOR_Y};0 ${PILE_X + SHEET_W / 2} ${FLOOR_Y};2 ${PILE_X + SHEET_W / 2} ${FLOOR_Y};0 ${PILE_X + SHEET_W / 2} ${FLOOR_Y}" dur="1.6s" repeatCount="indefinite"/>`
+      : ''
+
+  return out + `<g>${sway}${sheetsOut}</g>`
 }
 
 // The context window's fill, as a row of cells at the right end of the
@@ -346,6 +449,6 @@ const SCENES: Record<Mood, () => string> = {
 export function svg(mood: Mood, width: number, context: ContextUsage | null = null): string {
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${STRIP_H}" viewBox="0 0 ${width} ${STRIP_H}" shape-rendering="crispEdges" style="display:block">` +
-    `<g font-family="ui-monospace, Menlo, Consolas, monospace">${floor(width)}${meter(width, context)}${clickable(SCENES[mood]())}</g></svg>`
+    `<g font-family="ui-monospace, Menlo, Consolas, monospace">${floor(width)}${pile(context)}${meter(width, context)}${clickable(SCENES[mood]())}</g></svg>`
   )
 }

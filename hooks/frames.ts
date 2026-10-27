@@ -36,7 +36,9 @@ const AT = 6
 export type Eyes = -1 | 0 | 1 | 'closed' | 'sleepy'
 
 // Facing us. Eyes glance by one pixel; `closed` is a blink.
-export function front(eyes: Eyes, legs: 'stand' | 'sit' = 'stand'): Grid {
+export type Legs = 'stand' | 'sit' | 'stepA' | 'stepB'
+
+export function front(eyes: Eyes, legs: Legs = 'stand'): Grid {
   const head = '..OOOOOOOO..'
   const eyeRow = head.split('')
   if (eyes === 'sleepy') {
@@ -46,7 +48,12 @@ export function front(eyes: Eyes, legs: 'stand' | 'sit' = 'stand'): Grid {
     eyeRow[8 + eyes] = 'E'
   }
   const body = [head, eyeRow.join(''), 'OOOOOOOOOOOO', 'OOOOOOOOOOOO', '..OOOOOOOO..', '..OOOOOOOO..']
-  const feet = legs === 'stand' ? ['..O.O..O.O..', '..O.O..O.O..'] : []
+  const feet = {
+    stand: ['..O.O..O.O..', '..O.O..O.O..'],
+    stepA: ['..O.O..O.O..', '..O....O....'],
+    stepB: ['..O.O..O.O..', '....O....O..'],
+    sit: [],
+  }[legs]
 
   return place([...body, ...feet], AT)
 }

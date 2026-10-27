@@ -11,9 +11,9 @@ A tiny pixel-art pet for Claude Code. It lives in a thin strip just above the pr
 | dizzy | a turn was interrupted or failed | shakes its head |
 | sleeping | nothing has happened for 5 minutes | sits down, shuts its eyes and snores |
 
-It stands at the left end of the strip, on a floor line, with a shadow under it. Click its head and it hops with a heart; click its body and it spins right round. Those reactions live inside the drawing (SMIL hears the click), so they run in the desktop app only.
+It stands at the left end of the strip, on a floor line, with a shadow under it. Click it and it does one of five things at random: hops with a heart, spins right round, startles with a "!", dances to a note, or waves. Those reactions live inside the drawing (SMIL hears the click; the hit areas take turns being the visible one, so the pick is luck), so they run in the desktop app only.
 
-At the right end of the strip a meter shows the session's context window: twenty cells and a percentage, orange, amber past 70% and red past 90%. It is read off the session when it starts, after each tool call, at the end of each turn and after a compaction. The terminal draws the same meter in block characters.
+The session's context window shows twice. Beside the pet, an in-tray: a pile of papers that grows with the context, under a dashed line where 100% is; the sheets near the top turn amber past 70% and red past 90%, and past 90% the pile sways. At the right end of the strip, a meter: twenty cells and the percentage, in the same colours. Both are read off the session when it starts, after each tool call, at the end of each turn and after a compaction. The terminal draws the meter in block characters.
 
 It draws on two surfaces:
 
