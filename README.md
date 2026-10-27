@@ -11,7 +11,7 @@ A tiny pixel-art pet for Claude Code. It lives in a thin strip just above the pr
 | dizzy | a turn was interrupted or failed | shakes its head |
 | sleeping | nothing has happened for 5 minutes | sits down, shuts its eyes and snores |
 
-It stands at the left end of the strip, on a floor line, with a shadow under it.
+It stands at the left end of the strip, on a floor line, with a shadow under it, and takes 220×46 px of it. Click it and it hops, with a heart. That reaction lives inside the drawing (SMIL hears the click), so it runs in the desktop app only.
 
 It draws on two surfaces:
 

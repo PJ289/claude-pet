@@ -10,12 +10,14 @@ import { COLUMNS, CROUCH, PULL, ROWS, SET, STRETCH, TYPE_A, TYPE_B, colorOf, fro
 import type { Grid } from './frames'
 
 // CSS pixels per art pixel.
-export const SCALE = 4
+export const SCALE = 3
 const FRAME_W = COLUMNS * SCALE
 const FRAME_H = ROWS * SCALE
 export const STRIP_H = FRAME_H + 4
 const TOP = STRIP_H - FRAME_H
-const STAGE_X = 8
+const STAGE_X = 6
+// The strip the pet needs: the stage and some floor fading out past it.
+export const WIDTH = 220
 const FLOOR_Y = STRIP_H - 1
 
 const BODY = '#D06A4B'
@@ -76,8 +78,39 @@ function breathing(seconds: number): string {
   return `<animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" keyTimes="0;0.5;1" dur="${fmt(seconds)}s" calcMode="spline" keySplines="${EASE};${EASE}" repeatCount="indefinite"/>`
 }
 
+// The floor line, fading out to the right so the stage has an end.
 function floor(width: number): string {
-  return `<rect x="0" y="${FLOOR_Y}" width="${width}" height="1" fill="#9A9A96" opacity="0.4"/>`
+  return (
+    `<defs><linearGradient id="floor" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#9A9A96" stop-opacity="0.4"/><stop offset="0.55" stop-color="#9A9A96" stop-opacity="0.4"/><stop offset="1" stop-color="#9A9A96" stop-opacity="0"/></linearGradient></defs>` +
+    `<rect x="0" y="${FLOOR_Y}" width="${width}" height="1" fill="url(#floor)"/>`
+  )
+}
+
+// A click on the pet: it hops, and a heart floats up. All inside the
+// drawing, where SMIL hears the click; nothing reaches the hooks.
+const HEART = ['.OO.OO.', 'OOOOOOO', 'OOOOOOO', '.OOOOO.', '..OOO..', '...O...']
+function clickable(body: string): string {
+  const heart = HEART.map((row, y) => {
+    let out = ''
+    let x = 0
+    while (x < row.length) {
+      let end = x
+      while (end < row.length && row[end] === 'O') end += 1
+      if (end > x) out += `<rect x="${px(x)}" y="${px(y)}" width="${px(end - x)}" height="${SCALE}" fill="#E8566E"/>`
+      x = end > x ? end : x + 1
+    }
+
+    return out
+  }).join('')
+
+  return (
+    `<g><animateTransform attributeName="transform" type="translate" values="0 0;0 -7;0 0" keyTimes="0;0.45;1" dur="0.42s" begin="hit.click" calcMode="spline" keySplines="0.2 0.8 0.4 1;0.6 0 0.8 0.2" additive="sum"/>${body}</g>` +
+    `<g transform="translate(${px(8.5) + STAGE_X} ${TOP + px(1)})" opacity="0">` +
+    `<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.6;1" dur="1.1s" begin="hit.click"/>` +
+    `<animateTransform attributeName="transform" type="translate" values="0 0;0 -8" dur="1.1s" begin="hit.click" additive="sum"/>` +
+    `${heart}</g>` +
+    `<rect id="hit" x="0" y="0" width="${FRAME_W + STAGE_X}" height="${STRIP_H}" fill="#fff" fill-opacity="0" style="cursor:pointer"/>`
+  )
 }
 
 // The shadow under the pet, centred on art column `cx`.
@@ -262,6 +295,6 @@ const SCENES: Record<Mood, () => string> = {
 export function svg(mood: Mood, width: number): string {
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${STRIP_H}" viewBox="0 0 ${width} ${STRIP_H}" shape-rendering="crispEdges" style="display:block">` +
-    `<g font-family="ui-monospace, Menlo, monospace">${floor(width)}${SCENES[mood]()}</g></svg>`
+    `<g font-family="ui-monospace, Menlo, monospace">${floor(width)}${clickable(SCENES[mood]())}</g></svg>`
   )
 }

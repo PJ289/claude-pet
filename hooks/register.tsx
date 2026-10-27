@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Mood } from '../types'
-import { SCALE, STRIP_H, svg } from './desktop'
+import { STRIP_H, WIDTH, svg } from './desktop'
 import { COLUMNS } from './frames'
 import { ROWS, cells, newWalker, step } from './terminal'
 import type { Walker } from './terminal'
@@ -233,7 +233,7 @@ export const register: Register = on => {
       const { Box, Svg } = $.ui.resolve(e)
       // Sized outright: left to itself the animated frame is 300px wide and
       // shrinks the art to fit.
-      const width = Math.max(COLUMNS * SCALE * 2, Math.min(480, e.props.bodyColumns * 7))
+      const width = WIDTH
 
       return (
         <Box alignItems="flex-end">
