@@ -402,7 +402,6 @@ export const register: Register = (on, options) => {
       // animation running.
       const stage = (
         <Svg
-          key="stage"
           source={stageSvg(current, view)}
           alt={`Your pixel pet is ${current}`}
           width={stageWidth(view)}
@@ -412,7 +411,6 @@ export const register: Register = (on, options) => {
       )
       const meter = view.hasMeter ? (
         <Svg
-          key="meter"
           source={meterSvg(view)}
           alt={`Context ${usage?.percent ?? 0}%`}
           width={232}

@@ -19,6 +19,12 @@ const TYPED = {
   presentation: { isFullscreen: true, columns: 80 },
 } as const
 
+// The band is a Box of two Svg drawings, the stage and the meter; these
+// read one's props off the drawn tree.
+type Drawn = { children?: { props?: Record<string, unknown> }[] }
+const first = (tree: unknown) => (tree as Drawn).children?.[0]?.props
+const second = (tree: unknown) => (tree as Drawn).children?.[1]?.props
+
 function engine(on: On) {
   // Nothing sits beneath the plugin: each hook here stands for the engine.
   mock.clock(on)
@@ -60,8 +66,8 @@ test('the pet draws on the terminal and on the desktop', async ($, on) => {
   expect(String(art?.props.source)).toContain('<svg')
   expect(String(art?.props.alt)).toContain('idle')
   // The context meter is a drawing of its own, at the fill the session reports.
-  const meter = await desktop.find({ type: 'Svg', key: 'meter' })
-  expect(String(meter?.props.source)).toContain('>37%<')
+  const meter = second(await desktop.drawn())
+  expect(String(meter?.source)).toContain('>37%<')
   await desktop.unmount()
 })
 
@@ -129,14 +135,15 @@ test('the options place and size the pet', { options: { size: '4', side: 'right'
   await $.session.start({ cwd: '/', surface: null, isInteractive: true })
 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  const art = await ui.find({ type: 'Svg', key: 'stage' })
+  const art = { props: second(await ui.drawn()) ?? {} }
   // Four pixels per art pixel: the strip is 14 rows of 4 plus 4.
   expect(art?.props.height).toBe(60)
   // No pile, so no 100% line; the battery and the week ride along with the meter.
   expect(String(art?.props.source)).not.toContain('>100%<')
-  const meter = await ui.find({ type: 'Svg', key: 'meter' })
-  expect(String(meter?.props.source)).toContain('>41%<')
-  expect(String(meter?.props.source)).toContain('>43%<')
+  // On the right side the meter is the first drawing and the stage the second.
+  const meter = first(await ui.drawn())
+  expect(String(meter?.source)).toContain('>41%<')
+  expect(String(meter?.source)).toContain('>43%<')
   await ui.unmount()
 })
 
