@@ -1,7 +1,7 @@
 // The terminal pet: a Raster of half-block cells (two art pixels per cell,
 // one above the other), repainted on a timer with $.ui.blit.
 
-import type { Mood } from '../types'
+import type { ContextUsage, Mood } from '../types'
 import { COLUMNS, CROUCH, PULL, ROWS as ART_ROWS, SET, STRETCH, TYPE_A, TYPE_B, colorOf, front } from './frames'
 import type { Grid } from './frames'
 
@@ -15,6 +15,9 @@ const LOWER = 0x2584 // ▄
 const FULL = 0x2588 // █
 const SPACE = 0x20
 const ACCENT = 0xd06a4b
+const DIM = 0x4e4e4b
+const TEXT = 0x9a9a96
+const METER_CELLS = 20
 
 const SNORE = ['z', 'z', 'Z', 'Z', ' ', ' ']
 
@@ -111,10 +114,24 @@ function rgb(hex: string): number {
   return parseInt(hex.slice(1), 16)
 }
 
+function meterColor(percent: number): number {
+  return percent >= 90 ? 0xe06c75 : percent >= 70 ? 0xe8c547 : ACCENT
+}
+
+// Writes `text` into row `row` from column `col`, in `color`.
+function write(words: Uint32Array, columns: number, row: number, col: number, text: string, color: number) {
+  for (let i = 0; i < text.length; i++) {
+    const at = (row * columns + col + i) * 3
+    if (col + i >= columns) return
+    words[at] = text.charCodeAt(i)
+    words[at + 1] = color
+  }
+}
+
 // Packs the frame as RasterProps.cells: `columns * ROWS` little-endian u32
 // triplets [codePoint, foreground, background], base64. The pet stands at
-// the left end of the band.
-export function cells(frame: Frame, columns: number): string {
+// the left end of the band, the context meter at the right.
+export function cells(frame: Frame, columns: number, context: ContextUsage | null = null): string {
   const words = new Uint32Array(columns * ROWS * 3)
 
   for (let row = 0; row < ROWS; row++) {
@@ -146,6 +163,18 @@ export function cells(frame: Frame, columns: number): string {
     const at = (2 * columns + 20) * 3
     words[at] = frame.glyph.charCodeAt(0)
     words[at + 1] = ACCENT
+  }
+
+  // "ctx ████████░░░░ 37%", right-aligned, when the band has room for it.
+  const meterWidth = 4 + METER_CELLS + 5
+  if (context !== null && columns >= COLUMNS + meterWidth + 4) {
+    const percent = Math.max(0, Math.min(100, context.percent))
+    const filled = Math.round((percent / 100) * METER_CELLS)
+    const col = columns - meterWidth - 1
+    write(words, columns, 2, col, 'ctx ', TEXT)
+    write(words, columns, 2, col + 4, '\u2588'.repeat(filled), meterColor(percent))
+    write(words, columns, 2, col + 4 + filled, '\u2591'.repeat(METER_CELLS - filled), DIM)
+    write(words, columns, 2, col + 4 + METER_CELLS, ` ${String(percent).padStart(3)}%`, percent >= 70 ? meterColor(percent) : TEXT)
   }
 
   return base64(words)

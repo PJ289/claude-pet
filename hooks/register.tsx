@@ -1,14 +1,15 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Mood } from '../types'
-import { STRIP_H, WIDTH, svg } from './desktop'
+import type { ContextUsage, Mood } from '../types'
+import { STRIP_H, svg, widthFor } from './desktop'
 import { COLUMNS } from './frames'
 import { ROWS, cells, newWalker, step } from './terminal'
 import type { Walker } from './terminal'
 
 const mood = atom({ plugin: 'pixel-pet', key: 'mood' } as const, 'idle')
 const isHidden = atom({ plugin: 'pixel-pet', key: 'isHidden' } as const, false)
+const context = atom({ plugin: 'pixel-pet', key: 'context' } as const, null)
 
 const MOODS: Mood[] = ['idle', 'working', 'intense', 'happy', 'dizzy', 'sleeping']
 
@@ -83,6 +84,18 @@ async function finish($: EngineInterface, isAnswered: boolean) {
   await settle($, reaction)
 }
 
+// Reads the context window's fill off the session and keeps it for the
+// meter; the sites drawing it redraw on their own.
+async function refreshContext($: EngineInterface) {
+  const usage = await $.session.usage()
+  const next: ContextUsage = {
+    percent: usage.context.percent ?? 0,
+    tokens: usage.context.tokens ?? 0,
+    window: usage.context.window,
+  }
+  await update($, context, () => next)
+}
+
 async function dozeOff($: EngineInterface) {
   const now = await $.clock.now()
   if (pet.shown === 'idle' && now - pet.lastActivity > SLEEP_AFTER_MS) await settle($, 'sleeping')
@@ -130,6 +143,7 @@ export const register: Register = on => {
       immediate: true,
     })
 
+    await refreshContext($)
     $.clock.every(30_000, () => void dozeOff($))
     if (e.surface === 'terminal') {
       $.clock.every(TICK_MS, () => void paint($))
@@ -150,6 +164,7 @@ export const register: Register = on => {
         text: [
           `Surfaces: ${surfaces.length === 0 ? 'none' : surfaces.join(', ')}`,
           `Hidden: ${await read($, isHidden)}; mood: ${pet.shown}${pet.isPinned ? ' (pinned)' : ''}`,
+          `Context: ${(await read($, context))?.percent ?? '?'}%`,
           drawn === null
             ? 'The band above the prompt has not been asked to draw yet.'
             : `Last drawn on ${drawn.surface}, ${ago}s ago.`,
@@ -197,14 +212,26 @@ export const register: Register = on => {
 
   on('tool.call', async ($, e, next) => {
     await wake($)
+    const ran = await next(e)
+    if (e.agentId === undefined) await refreshContext($)
+
+    return ran
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    if (e.agentId === undefined) {
+      await finish($, e.reason === 'answer')
+      await refreshContext($)
+    }
 
     return next(e)
   })
 
-  on('turn.complete', async ($, e, next) => {
-    if (e.agentId === undefined) await finish($, e.reason === 'answer')
+  on('session.compact', async ($, e, next) => {
+    const done = await next(e)
+    await refreshContext($)
 
-    return next(e)
+    return done
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -219,6 +246,7 @@ export const register: Register = on => {
     const isResting = stored === 'idle' || stored === 'sleeping'
     const current: Mood = e.props.isWorking && isResting && !pet.isPinned ? 'working' : stored
     pet.shown = current
+    const usage = await read($, context)
 
     if (e.surface === 'terminal') {
       const { Raster } = $.ui.resolve(e)
@@ -226,19 +254,19 @@ export const register: Register = on => {
       const walker = (pet.walker ??= newWalker())
       pet.band = { requestId: e.requestId, columns }
 
-      return <Raster key="pet" columns={columns} rows={ROWS} cells={cells(step(walker, current), columns)} />
+      return <Raster key="pet" columns={columns} rows={ROWS} cells={cells(step(walker, current), columns, usage)} />
     }
 
     if (e.surface === 'desktop') {
       const { Box, Svg } = $.ui.resolve(e)
       // Sized outright: left to itself the animated frame is 300px wide and
       // shrinks the art to fit.
-      const width = WIDTH
+      const width = widthFor(e.props.bodyColumns)
 
       return (
         <Box alignItems="flex-end">
           <Svg
-            source={svg(current, width)}
+            source={svg(current, width, usage)}
             alt={`Your pixel pet is ${current}`}
             width={width}
             height={STRIP_H}

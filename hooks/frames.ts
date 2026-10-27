@@ -63,6 +63,17 @@ export const STRETCH: Grid = place(
   AT + 1,
 )
 
+// Three-quarter views and the back, for a spin: the shade marks the far side.
+export const SIDE_L: Grid = place(
+  ['.OOOOOOSS.', '.OOOOEOSS.', 'OOOOOOOOSS', 'OOOOOOOOSS', '.OOOOOOSS.', '.OOOOOOSS.', '.O.O..O.S.', '.O.O..O.S.'],
+  AT + 1,
+)
+export const SIDE_R: Grid = SIDE_L.map(row => row.split('').reverse().join(''))
+export const BACK: Grid = place(
+  ['..OOOOOOOO..', '..OOOOOOOO..', 'OOOOOOOOOOOO', 'OOOOOOOOOOOO', '..SSSSSSSS..', '..SSSSSSSS..', '..O.O..O.O..', '..O.O..O.O..'],
+  AT,
+)
+
 // Pulling the laptop out from above, then setting it down beside it.
 export const PULL: Grid = place(
   ['c...........', 'c...........', '..SS........', '..OOOOOOOOOO', '....OEOOOOEO', '....OOOOOOOOOO', '....OOOOOOOOOO', '....OOOOOOOO', '....OOOOOOOO', '....O.O..O.O', '....O.O..O.O'],

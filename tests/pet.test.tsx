@@ -32,6 +32,9 @@ function engine(on: On) {
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('command.run', () => ({}))
+  on('session.usage', () => ({
+    value: { startedAt: 0, context: { tokens: 74000, window: 200000, percent: 37 }, rateLimits: [] },
+  }))
 }
 
 test('the pet draws on the terminal and on the desktop', async ($, on) => {
@@ -48,6 +51,8 @@ test('the pet draws on the terminal and on the desktop', async ($, on) => {
   const art = await desktop.find({ type: 'Svg' })
   expect(String(art?.props.source)).toContain('<svg')
   expect(String(art?.props.alt)).toContain('idle')
+  // The context meter rides along, at the fill the session reports.
+  expect(String(art?.props.source)).toContain('>37%<')
   await desktop.unmount()
 })
 
