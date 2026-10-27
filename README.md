@@ -14,7 +14,7 @@ It draws on two surfaces:
 - **Claude desktop app**: an animated SVG. The animation runs in the app itself, so it needs no redraws.
 - **Terminal**: a 3-row strip of half-block pixels, repainted about 7 times a second.
 
-The engine's `[-]` mark next to the strip collapses it. `/pet hide` and `/pet show` (or `/pet` to toggle) hide or show it, and that setting carries over to future sessions.
+The engine's `[-]` mark next to the strip collapses it. `/pet hide` and `/pet show` (or `/pet` to toggle) hide or show it, `/pet status` says where it is drawn, and that setting carries over to future sessions.
 
 ## Install
 
@@ -46,9 +46,9 @@ An SSH session runs Claude Code on the remote host, so the plugin loads from tha
 ssh my-host 'claude plugin install pixel-pet --marketplace PJ289/claude-pet'
 ```
 
-### Cloud sessions (claude.ai/code and the desktop app's cloud sessions)
+### Cloud sessions
 
-A cloud session starts from a fresh container, so it loads plugins from the repository's project settings. Add this to `.claude/settings.json` in each repository where you want the pet:
+A cloud session (claude.ai/code, or a cloud session opened from the desktop app) runs the plugin in its container, but the app watching it does not attach as a drawing surface, so nothing is drawn there. `/pet status` shows this as `Surfaces: none`. The plugin still loads there if the repository's `.claude/settings.json` enables it, and the pet will show up once remote clients draw mod UI:
 
 ```json
 {
@@ -59,7 +59,13 @@ A cloud session starts from a fresh container, so it loads plugins from the repo
 }
 ```
 
-Those same lines also turn the pet on for anyone who opens that repository locally or over SSH. Another option is to add the shell install command to the cloud environment's setup script.
+### Private repository
+
+While `PJ289/claude-pet` is private, installing needs a git credential for github.com on the machine (an SSH key, or `gh auth login` then `gh auth setup-git`). The install never prompts for one.
+
+## Troubleshooting
+
+`/pet status` lists the surfaces the session draws on and when the band was last drawn. If it says `Surfaces: none`, the app showing the session is not drawing mod UI there.
 
 ## Development
 
