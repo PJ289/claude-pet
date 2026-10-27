@@ -413,7 +413,7 @@ export const register: Register = (on, options) => {
         <Svg
           source={meterSvg(view)}
           alt={`Context ${usage?.percent ?? 0}%`}
-          width={232}
+          width={220}
           height={height}
           isInteractive
         />

@@ -293,60 +293,94 @@ function clickable(body: string): string {
 const CELLS = 20
 const CELL_W = 5
 const CELL_GAP = 2
+// Three gauges share this width: 20 cells of 5 with gaps of 2.
 export function meterColor(percent: number): string {
   return percent >= 90 ? '#E06C75' : percent >= 70 ? '#E8C547' : BODY
 }
+// How many of `count` cells a percent lights: at least one once above zero.
+function litOf(percent: number, count: number): number {
+  const p = Math.max(0, Math.min(100, percent))
+
+  return p > 0 ? Math.max(1, Math.round((p / 100) * count)) : 0
+}
+
 function meter(context: ContextUsage | null): string {
   if (context === null) return ''
-  const percent = Math.max(0, Math.min(100, context.percent))
-  const filled = Math.round((percent / 100) * CELLS)
-  const barW = CELLS * (CELL_W + CELL_GAP) - CELL_GAP
-  const y = Math.round(STRIP_H / 2) - 4
-  const color = meterColor(percent)
-  // Laid out from the far end inward: the percent, the cells, "ctx", then
-  // the battery; `text` is anchored at the far end.
-  const end = IS_LEFT ? WIDTH - 8 : 8
-  const anchor = IS_LEFT ? 'end' : 'start'
-  const inward = (from: number, by: number) => (IS_LEFT ? from - by : from + by)
-  const barStart = IS_LEFT ? end - 30 - barW : end + 30
-  let out = `<text x="${end}" y="${y + 8}" font-size="10" font-weight="bold" fill="${percent >= 70 ? color : '#B8B8B4'}" text-anchor="${anchor}">${percent}%</text>`
-  for (let i = 0; i < CELLS; i++) {
-    out += `<rect x="${barStart + i * (CELL_W + CELL_GAP)}" y="${y}" width="${CELL_W}" height="8" fill="${i < filled ? color : GREY}" opacity="${i < filled ? 1 : 0.22}"/>`
-  }
-  const labelX = IS_LEFT ? barStart - 6 : barStart + barW + 6
-  out += `<text x="${labelX}" y="${y + 8}" font-size="10" fill="${GREY}" text-anchor="${anchor}">ctx</text>`
+  // Three gauges of one width, one row each: the context window, the
+  // five-hour window as a battery, the week as seven cells. Each row is a
+  // label, the gauge, and the percent at the far end.
+  const gaugeW = CELLS * (CELL_W + CELL_GAP) - CELL_GAP
+  const rowH = 10
+  const rows: { label: string; percent: number; gauge: (x: number, y: number, tint: string) => string }[] = [
+    {
+      label: 'ctx',
+      percent: context.percent,
+      gauge: (x, y, tint) => {
+        const filled = litOf(context.percent, CELLS)
+        let out = ''
+        for (let i = 0; i < CELLS; i++) {
+          out += `<rect x="${x + i * (CELL_W + CELL_GAP)}" y="${y}" width="${CELL_W}" height="${rowH}" fill="${i < filled ? tint : GREY}" opacity="${i < filled ? 1 : 0.22}"/>`
+        }
 
-  // The rate-limit windows on a row above: the five-hour one as a battery,
-  // the week as seven cells, one per day.
-  const limits: string[] = []
-  const top = y - 13
+        return out
+      },
+    },
+  ]
   if (context.limitPercent !== undefined) {
     const used = Math.max(0, Math.min(100, context.limitPercent))
-    const tint = meterColor(used)
-    limits.push(
-      `<text x="0" y="8" font-size="8" fill="${GREY}">5h</text>` +
-        `<rect x="14" y="1" width="18" height="7" fill="none" stroke="${GREY}" stroke-opacity="0.6"/>` +
-        `<rect x="32" y="3" width="2" height="3" fill="${GREY}" fill-opacity="0.6"/>` +
-        `<rect x="16" y="3" width="${Math.round((14 * used) / 100)}" height="3" fill="${tint}"/>` +
-        `<text x="38" y="8" font-size="8" fill="${used >= 70 ? tint : '#B8B8B4'}">${Math.round(used)}%</text>`,
-    )
+    rows.push({
+      label: '5h',
+      percent: used,
+      gauge: (x, y, tint) => {
+        // A battery: the case with its tip, ten segments inside.
+        const segments = 10
+        const segW = (gaugeW - 4 - (segments - 1) * 2 - 2) / segments
+        const filled = litOf(used, segments)
+        let out = `<rect x="${x + 0.5}" y="${y + 0.5}" width="${gaugeW - 3}" height="${rowH - 1}" fill="none" stroke="${GREY}" stroke-opacity="0.7"/>`
+        out += `<rect x="${x + gaugeW - 2}" y="${y + 3}" width="2" height="${rowH - 6}" fill="${GREY}" fill-opacity="0.7"/>`
+        for (let i = 0; i < segments; i++) {
+          out += `<rect x="${fmt(x + 2 + i * (segW + 2))}" y="${y + 2}" width="${fmt(segW)}" height="${rowH - 4}" fill="${i < filled ? tint : GREY}" opacity="${i < filled ? 1 : 0.18}"/>`
+        }
+
+        return out
+      },
+    })
   }
   if (context.weekPercent !== undefined) {
     const used = Math.max(0, Math.min(100, context.weekPercent))
-    const tint = meterColor(used)
-    const days = Math.round((used / 100) * 7)
-    let cells = ''
-    for (let i = 0; i < 7; i++) {
-      cells += `<rect x="${14 + i * 6}" y="1" width="5" height="7" fill="${i < days ? tint : GREY}" opacity="${i < days ? 1 : 0.22}"/>`
-    }
-    limits.push(`<text x="0" y="8" font-size="8" fill="${GREY}">7d</text>${cells}<text x="58" y="8" font-size="8" fill="${used >= 70 ? tint : '#B8B8B4'}">${Math.round(used)}%</text>`)
+    rows.push({
+      label: '7d',
+      percent: used,
+      gauge: (x, y, tint) => {
+        // Seven cells, one per day of the window.
+        const dayW = (gaugeW - 6 * 2) / 7
+        const days = litOf(used, 7)
+        let out = ''
+        for (let i = 0; i < 7; i++) {
+          out += `<rect x="${fmt(x + i * (dayW + 2))}" y="${y}" width="${fmt(dayW)}" height="${rowH}" fill="${i < days ? tint : GREY}" opacity="${i < days ? 1 : 0.22}"/>`
+        }
+
+        return out
+      },
+    })
   }
-  // Each block is about 60px wide; they sit end to end, from the far end.
-  const blockW = 72
-  limits.forEach((block, i) => {
-    const x = IS_LEFT ? end - (limits.length - i) * blockW + 4 : end + i * blockW
-    out += `<g transform="translate(${x} ${top})">${block}</g>`
+  const gap = rows.length === 3 ? 4 : 8
+  const top = Math.round((STRIP_H - (rows.length * rowH + (rows.length - 1) * gap)) / 2)
+  const labelW = 24
+  const percentW = 34
+  const end = IS_LEFT ? WIDTH - 8 : 8
+  const gaugeX = IS_LEFT ? end - percentW - gaugeW : end + percentW
+  const labelX = IS_LEFT ? gaugeX - 6 : gaugeX + gaugeW + 6
+  let out = ''
+  rows.forEach((row, i) => {
+    const y = top + i * (rowH + gap)
+    const percent = Math.round(row.percent)
+    const tint = meterColor(percent)
+    out += `<text x="${labelX}" y="${y + rowH - 1}" font-size="10" fill="${GREY}" text-anchor="${IS_LEFT ? 'end' : 'start'}">${row.label}</text>`
+    out += row.gauge(gaugeX, y, tint)
+    out += `<text x="${end}" y="${y + rowH - 1}" font-size="10" font-weight="bold" fill="${percent >= 70 ? tint : '#B8B8B4'}" text-anchor="${IS_LEFT ? 'end' : 'start'}">${percent}%</text>`
   })
+  void labelW
 
   return out
 }
@@ -744,7 +778,7 @@ const SCENES: Record<Mood, (view: View) => string> = {
 
 // The strip as two drawings, so a change in one leaves the other's
 // animation running: the stage (pet, pile, minis) and the meter.
-const METER_W = 232
+const METER_W = 220
 
 export function stageWidth(view: View): number {
   const s = view.scale
