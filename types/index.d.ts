@@ -1,4 +1,4 @@
-export type Mood = 'idle' | 'working' | 'intense' | 'happy' | 'dizzy' | 'sleeping'
+export type Mood = 'idle' | 'working' | 'intense' | 'happy' | 'dizzy' | 'sleeping' | 'compacting'
 
 // The session's context window, as last read: tokens in use, the window's
 // size, and the one over the other as a whole percentage.

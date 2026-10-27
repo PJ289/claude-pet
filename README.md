@@ -10,6 +10,7 @@ A tiny pixel-art pet for Claude Code. It lives in a thin strip just above the pr
 | happy | a turn has just finished with an answer | a real jump, crouch, stretch and land, with confetti |
 | dizzy | a turn was interrupted or failed | shakes its head |
 | sleeping | nothing has happened for 5 minutes | sits down, shuts its eyes and snores |
+| compacting | the conversation is being compacted (`/compact` or automatic) | walks over to the in-tray, hops on and stomps the pile down, dust flying, until it is done |
 
 It stands at the left end of the strip, on a floor line, with a shadow under it. Click it and it does one of five things at random: hops with a heart, spins right round, startles with a "!", dances to a note, or waves. Those reactions live inside the drawing (SMIL hears the click; the hit areas take turns being the visible one, so the pick is luck), so they run in the desktop app only.
 

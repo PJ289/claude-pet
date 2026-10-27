@@ -1,4 +1,4 @@
-import type { On } from 'claude-code'
+import type { On, SessionMessage } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 const BAND = {
@@ -95,4 +95,22 @@ test('/pet hides and shows the pet', async ($, on) => {
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ type: 'Raster' })).toBeDefined()
   await ui.unmount()
+})
+
+test('the pet stomps the pile while the conversation compacts', async ($, on) => {
+  engine(on)
+  const summary: SessionMessage = { role: 'user', text: 'The conversation so far, in short.', toolUses: [] }
+  // Beneath the plugin, the engine's own compaction; every mood the pet
+  // writes on its way is kept in order.
+  const moods: unknown[] = []
+  on('state.set', ($, e, next) => {
+    if (e.key === 'mood') moods.push(e.value)
+
+    return next(e)
+  })
+  on('session.compact', (_, e) => ({ messages: e.messages }))
+  await $.session.start({ cwd: '/', surface: null, isInteractive: true })
+
+  await $.session.compact({ trigger: 'manual', messages: [summary] })
+  expect(moods).toEqual(['compacting', 'idle'])
 })

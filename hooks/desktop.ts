@@ -215,9 +215,33 @@ function clickable(body: string): string {
 const PILE_X = 104
 const PILE_SHEETS = 13
 const SHEET_W = 27
-function pile(context: ContextUsage | null): string {
+function sheetsOf(context: ContextUsage | null): number {
   const percent = context === null ? 0 : Math.max(0, Math.min(100, context.percent))
-  const sheets = Math.round((percent / 100) * PILE_SHEETS)
+
+  return Math.round((percent / 100) * PILE_SHEETS)
+}
+
+// The stomp's beat while compacting: the pet lands at STOMP_BEGIN_S and the
+// pile collapses under it to what fits in the strip, then each cycle opens
+// with the next impact.
+const STOMP_S = 0.6
+const STOMP_BEGIN_S = 1
+const SHEETS_UNDER_PET = 6
+function collapseOf(sheets: number): number {
+  return sheets > SHEETS_UNDER_PET ? SHEETS_UNDER_PET / sheets : 1
+}
+function squash(sheets: number): string {
+  const k = fmt(collapseOf(sheets))
+
+  return (
+    `<animateTransform attributeName="transform" type="scale" values="1 1;1 1;1 ${k}" keyTimes="0;0.97;1" dur="${STOMP_BEGIN_S}s" fill="freeze"/>` +
+    `<animateTransform attributeName="transform" type="scale" values="1 0.82;1 1;1 1" keyTimes="0;0.25;1" dur="${STOMP_S}s" begin="${STOMP_BEGIN_S}s" repeatCount="indefinite" additive="sum"/>`
+  )
+}
+
+function pile(context: ContextUsage | null, isSquashed = false): string {
+  const percent = context === null ? 0 : Math.max(0, Math.min(100, context.percent))
+  const sheets = sheetsOf(context)
   const ceiling = FLOOR_Y - PILE_SHEETS * SCALE - 2
   // A dotted post from the floor to the line, so the room left is legible.
   let out = `<line x1="${PILE_X - 6}" x2="${PILE_X - 6}" y1="${ceiling}" y2="${FLOOR_Y}" stroke="#9A9A96" stroke-opacity="0.35" stroke-dasharray="1 2"/>`
@@ -230,6 +254,13 @@ function pile(context: ContextUsage | null): string {
     const jog = [0, 2, -1, 1, -2, 1, 0, 2, -1, 1, -2, 0, 1][i] ?? 0
     const y = FLOOR_Y - (i + 1) * SCALE
     sheetsOut += `<rect x="${PILE_X + jog}" y="${y}" width="${SHEET_W}" height="${SCALE - 1}" fill="${tint}"/>`
+  }
+  if (isSquashed) {
+    return (
+      out +
+      `<g transform="translate(0 ${FLOOR_Y})"><g>${squash(sheets)}` +
+      `<g transform="translate(0 ${-FLOOR_Y})">${sheetsOut}</g></g></g>`
+    )
   }
   const sway =
     percent >= 90
@@ -437,18 +468,53 @@ function sleeping(): string {
   return shadow(12, 5.5) + stage(`<g>${breathing(3.6)}${rects(front('sleepy', 'sit'))}</g>${snore}`)
 }
 
-const SCENES: Record<Mood, () => string> = {
+// Compacting: the pet walks over to the in-tray, hops on and stomps the
+// pile down, dust flying, until the compaction is through.
+function compacting(context: ContextUsage | null): string {
+  const sheets = sheetsOf(context)
+  const h = sheets * SCALE
+  const hk = h * collapseOf(sheets)
+  const dx = PILE_X + SHEET_W / 2 - (px(12) + STAGE_X)
+  const walk: Step[] = Array.from({ length: 7 }, (_, i) => ({ grid: front(1, i % 2 ? 'stepB' : 'stepA'), ms: 100 }))
+  const intro = clip([...walk, { grid: STRETCH, ms: 300 }, { grid: [], ms: 10 }], { repeat: 1 })
+  // Each cycle: the impact, up again, a crouch, and the leap.
+  const stomp = clip(
+    [
+      { grid: CROUCH, ms: 150 },
+      { grid: STAND, ms: 100 },
+      { grid: CROUCH, ms: 100 },
+      { grid: STRETCH, ms: 250 },
+    ],
+    { begin: STOMP_BEGIN_S + 0.01 },
+  )
+  const go = `<animateTransform attributeName="transform" type="translate" values="0 0;${fmt(dx)} 0;${fmt(dx)} ${fmt(-h)};${fmt(dx)} ${fmt(-hk)}" keyTimes="0;0.7;0.97;1" dur="${STOMP_BEGIN_S}s" calcMode="spline" keySplines="0 0 1 1;0.2 0.8 0.4 1;0 0 1 1" fill="freeze" additive="sum"/>`
+  const bounce = `<animateTransform attributeName="transform" type="translate" values="0 ${fmt(0.18 * hk)};0 0;0 0;0 0;0 -10;0 0" keyTimes="0;0.25;0.42;0.58;0.78;1" dur="${STOMP_S}s" begin="${STOMP_BEGIN_S}s" calcMode="spline" keySplines="0 0 1 1;0 0 1 1;0 0 1 1;0.2 0.8 0.4 1;0.6 0 0.8 0.2" repeatCount="indefinite" additive="sum"/>`
+  const dust = [-1, 1]
+    .map(
+      dir =>
+        `<g transform="translate(${PILE_X + SHEET_W / 2 + dir * 14} ${FLOOR_Y - 3})" opacity="0">` +
+        `<rect x="-1" y="-1" width="3" height="3" fill="#9A9A96"/><rect x="${dir * 4}" y="-4" width="2" height="2" fill="#9A9A96"/>` +
+        `<animate attributeName="opacity" values="1;0;0" keyTimes="0;0.4;1" dur="${STOMP_S}s" begin="${STOMP_BEGIN_S}s" repeatCount="indefinite"/>` +
+        `<animateTransform attributeName="transform" type="translate" values="0 0;${dir * 8} -3;${dir * 8} -3" keyTimes="0;0.4;1" dur="${STOMP_S}s" begin="${STOMP_BEGIN_S}s" repeatCount="indefinite" additive="sum"/></g>`,
+    )
+    .join('')
+
+  return `<g transform="translate(${STAGE_X} ${TOP})">${go}${bounce}${intro}${stomp}</g>${dust}`
+}
+
+const SCENES: Record<Mood, (context: ContextUsage | null) => string> = {
   idle,
   working: () => working(false),
   intense: () => working(true),
   happy,
   dizzy,
   sleeping,
+  compacting,
 }
 
 export function svg(mood: Mood, width: number, context: ContextUsage | null = null): string {
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${STRIP_H}" viewBox="0 0 ${width} ${STRIP_H}" shape-rendering="crispEdges" style="display:block">` +
-    `<g font-family="ui-monospace, Menlo, Consolas, monospace">${floor(width)}${pile(context)}${meter(width, context)}${clickable(SCENES[mood]())}</g></svg>`
+    `<g font-family="ui-monospace, Menlo, Consolas, monospace">${floor(width)}${pile(context, mood === 'compacting')}${meter(width, context)}${clickable(SCENES[mood](context))}</g></svg>`
   )
 }

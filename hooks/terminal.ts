@@ -65,6 +65,12 @@ const JUMP: [Grid, number][] = [
   [STAND, 4],
 ]
 
+const STOMP: [Grid, number][] = [
+  [CROUCH, 1],
+  [STRETCH, 2],
+  [CROUCH, 1],
+]
+
 function sequence(steps: [Grid, number][], at: number): Grid | undefined {
   let seen = 0
   for (const [grid, n] of steps) {
@@ -97,6 +103,8 @@ export function step(walker: Walker, mood: Mood): Frame {
       return { grid: loop(JUMP, elapsed), glyph: elapsed % 10 < 5 ? '*' : null, dx: 0 }
     case 'dizzy':
       return { grid: elapsed % 8 < 4 ? front('closed') : STAND, glyph: null, dx: elapsed % 8 < 4 ? (elapsed % 2 ? -1 : 1) : 0 }
+    case 'compacting':
+      return { grid: loop(STOMP, elapsed), glyph: elapsed % 4 === 3 ? '*' : null, dx: 0 }
     case 'working':
     case 'intense': {
       const intro = sequence(INTRO, elapsed)

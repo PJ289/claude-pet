@@ -11,7 +11,7 @@ const mood = atom({ plugin: 'pixel-pet', key: 'mood' } as const, 'idle')
 const isHidden = atom({ plugin: 'pixel-pet', key: 'isHidden' } as const, false)
 const context = atom({ plugin: 'pixel-pet', key: 'context' } as const, null)
 
-const MOODS: Mood[] = ['idle', 'working', 'intense', 'happy', 'dizzy', 'sleeping']
+const MOODS: Mood[] = ['idle', 'working', 'intense', 'happy', 'dizzy', 'sleeping', 'compacting']
 
 const TICK_MS = 150
 const HAPPY_MS = 4200
@@ -227,9 +227,17 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // While the main conversation compacts, the pet stomps the pile down;
+  // a precompute installs nothing and shows nothing.
   on('session.compact', async ($, e, next) => {
+    const isShown = e.agentId === undefined && e.trigger !== 'precompute'
+    const before = pet.shown
+    if (isShown) await settle($, 'compacting')
     const done = await next(e)
     await refreshContext($)
+    if (isShown && pet.shown === 'compacting') {
+      await settle($, before === 'working' || before === 'intense' ? before : 'idle')
+    }
 
     return done
   })
