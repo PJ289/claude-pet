@@ -4,17 +4,27 @@ A tiny pixel-art pet for Claude Code. It lives in a thin strip just above the pr
 
 | Mood | When | What it does |
 | --- | --- | --- |
-| idle | nothing is running | stands on its spot, breathing, blinking, glancing at the prompt |
-| working | a turn is running | the mascot's own routine: pulls out a laptop, hops, and types, a small terminal window filling up above the laptop |
+| idle | nothing is running | stands on its spot, breathing, blinking, glancing at the prompt; its eyes follow your pointer |
+| working | a turn is running | the mascot's own routine: pulls out a laptop, hops, and types; the terminal window above the laptop names what Claude is doing (`read`, `bash`, `edit`, `web`, `agent`, ...) |
 | intense | a turn has run for over a minute | the same, frantic: faster keys, a sweat drop, the terminal racing |
-| happy | a turn has just finished with an answer | a real jump, crouch, stretch and land, with confetti |
+| attention | Claude is waiting on you: a permission, a question, a plan to approve | faces the prompt and bounces with a `?` over it, until the tool goes ahead |
+| puzzled | a tool call failed | scratches its head for a moment, then back to typing |
+| nod | a turn under 15 seconds finished | a nod and a blink |
+| happy | a turn finished with an answer | a real jump, crouch, stretch and land, with confetti |
+| elated | a turn over five minutes finished | higher, faster, twice the confetti |
 | dizzy | a turn was interrupted or failed | shakes its head |
-| sleeping | nothing has happened for 5 minutes | sits down, shuts its eyes and snores |
+| sleeping | nothing has happened for 5 minutes | sits down, shuts its eyes and snores; at night, in a nightcap |
 | compacting | the conversation is being compacted (`/compact` or automatic) | walks over to the in-tray, hops on and stomps the pile down, dust flying, until it is done |
 
-It stands at the left end of the strip, on a floor line, with a shadow under it. Click it and it does one of five things at random: hops with a heart, spins right round, startles with a "!", dances to a note, or waves. Those reactions live inside the drawing (SMIL hears the click; the hit areas take turns being the visible one, so the pick is luck), so they run in the desktop app only.
+While subagents run, a mini pet types beside the pile for each of them (three at most, then a count). Between 22:00 and 06:00 on the machine's clock the strip dims and a crescent moon hangs over the stage.
 
-The session's context window shows twice. Beside the pet, an in-tray: a pile of papers that grows with the context, under a dashed line where 100% is; the sheets near the top turn amber past 70% and red past 90%, and past 90% the pile sways. At the right end of the strip, a meter: twenty cells and the percentage, in the same colours. Both are read off the session when it starts, after each tool call, at the end of each turn and after a compaction. The terminal draws the meter in block characters.
+It stands at one end of the strip, on a floor line, with a shadow under it. Click it and it does one of five things at random: hops with a heart, spins right round, startles with a "!", dances to a note, or waves. Those reactions, and the eyes that follow the pointer, live inside the drawing (SMIL and CSS hear the pointer; the hit areas take turns being the visible one, so the pick is luck), so they run in the desktop app only.
+
+The session's context window shows twice. Beside the pet, an in-tray: a pile of papers that grows with the context, under a dashed line where 100% is; the sheets near the top turn amber past 70% and red past 90%, and past 90% the pile sways. At the other end of the strip, a meter: twenty cells and the percentage, in the same colours, and before it, where the account has one, the five-hour rate-limit window as a battery. All of it is read off the session when it starts, after each tool call, at the end of each turn and after a compaction. The terminal draws the meter in block characters.
+
+## Options
+
+In `/config` (or `pluginConfigs` in settings) the plugin has four rows: **Size** (3 or 4 pixels per art pixel), **Side** (which end of the strip the pet stands at), **Context meter** and **Paper pile** (on or off). A change reloads the pet with the new look.
 
 It draws on two surfaces:
 
@@ -84,9 +94,9 @@ claude --plugin-dir .      # run a session with the pet loaded from this folder
 
 - `hooks/register.tsx`: the hooks (moods, the `/pet` command, drawing the band)
 - `hooks/frames.ts`: the pixel art, traced from Claude's mascot, one character per pixel
+- `types/index.d.ts`: the session state contract (`mood`, `isHidden`, `context`, `activity`, `agents`, `isNight`)
 - `hooks/desktop.ts`: the SMIL-animated SVG for the desktop app
 - `hooks/terminal.ts`: the walker and the half-block Raster encoding for the terminal
-- `types/index.d.ts`: the session state contract (`mood`, `isHidden`)
 
 ## License
 

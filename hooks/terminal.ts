@@ -2,7 +2,7 @@
 // one above the other), repainted on a timer with $.ui.blit.
 
 import type { ContextUsage, Mood } from '../types'
-import { COLUMNS, CROUCH, PULL, ROWS as ART_ROWS, SET, STRETCH, TYPE_A, TYPE_B, colorOf, front } from './frames'
+import { COLUMNS, CROUCH, PULL, ROWS as ART_ROWS, SCRATCH_A, SCRATCH_B, SET, STRETCH, TYPE_A, TYPE_B, colorOf, front } from './frames'
 import type { Grid } from './frames'
 
 // The canvas's top row is headroom; the terminal shows the rest.
@@ -105,6 +105,14 @@ export function step(walker: Walker, mood: Mood): Frame {
       return { grid: elapsed % 8 < 4 ? front('closed') : STAND, glyph: null, dx: elapsed % 8 < 4 ? (elapsed % 2 ? -1 : 1) : 0 }
     case 'compacting':
       return { grid: loop(STOMP, elapsed), glyph: elapsed % 4 === 3 ? '*' : null, dx: 0 }
+    case 'attention':
+      return { grid: elapsed % 5 < 2 ? STRETCH : front(1), glyph: '?', dx: 0 }
+    case 'puzzled':
+      return { grid: elapsed % 2 ? SCRATCH_A : SCRATCH_B, glyph: '?', dx: 0 }
+    case 'nod':
+      return { grid: elapsed % 6 === 2 ? front('closed') : STAND, glyph: null, dx: 0 }
+    case 'elated':
+      return { grid: loop(JUMP, elapsed), glyph: '*', dx: 0 }
     case 'working':
     case 'intense': {
       const intro = sequence(INTRO, elapsed)
@@ -139,13 +147,15 @@ function write(words: Uint32Array, columns: number, row: number, col: number, te
 // Packs the frame as RasterProps.cells: `columns * ROWS` little-endian u32
 // triplets [codePoint, foreground, background], base64. The pet stands at
 // the left end of the band, the context meter at the right.
-export function cells(frame: Frame, columns: number, context: ContextUsage | null = null): string {
+export function cells(frame: Frame, columns: number, context: ContextUsage | null = null, side: 'left' | 'right' = 'left'): string {
   const words = new Uint32Array(columns * ROWS * 3)
+  const isLeft = side === 'left'
+  const petAt = isLeft ? 1 : Math.max(1, columns - COLUMNS - 1)
 
   for (let row = 0; row < ROWS; row++) {
     for (let col = 0; col < columns; col++) {
       const at = (row * columns + col) * 3
-      const local = col - 1 - frame.dx
+      const local = col - petAt - frame.dx
       const top = colorOf(frame.grid[SKIP + row * 2]?.[local])
       const bottom = colorOf(frame.grid[SKIP + row * 2 + 1]?.[local])
       words[at + 1] = DEFAULT
@@ -168,17 +178,17 @@ export function cells(frame: Frame, columns: number, context: ContextUsage | nul
   }
 
   if (frame.glyph !== null && columns > COLUMNS) {
-    const at = (2 * columns + 20) * 3
+    const at = (2 * columns + petAt + 19) * 3
     words[at] = frame.glyph.charCodeAt(0)
     words[at + 1] = ACCENT
   }
 
-  // "ctx ████████░░░░ 37%", right-aligned, when the band has room for it.
+  // "ctx ████████░░░░ 37%" at the far end, when the band has room for it.
   const meterWidth = 4 + METER_CELLS + 5
   if (context !== null && columns >= COLUMNS + meterWidth + 4) {
     const percent = Math.max(0, Math.min(100, context.percent))
     const filled = Math.round((percent / 100) * METER_CELLS)
-    const col = columns - meterWidth - 1
+    const col = isLeft ? columns - meterWidth - 1 : 1
     write(words, columns, 2, col, 'ctx ', TEXT)
     write(words, columns, 2, col + 4, '\u2588'.repeat(filled), meterColor(percent))
     write(words, columns, 2, col + 4 + filled, '\u2591'.repeat(METER_CELLS - filled), DIM)

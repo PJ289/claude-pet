@@ -4,6 +4,7 @@
 //
 //   '.' transparent  'O' body  'S' body, shaded  'E' eye
 //   'c' light grey   'd' dark grey  'L' lit screen edge  'B' sweat
+//   'N' night blue   'W' white
 
 export const COLUMNS = 28
 export const ROWS = 14
@@ -16,6 +17,8 @@ export const PALETTE: Record<string, string> = {
   d: '#4E4E4B',
   L: '#CFE8FF',
   B: '#6FB7FF',
+  N: '#4A6FA5',
+  W: '#EDEDEA',
 }
 
 export type Grid = string[]
@@ -69,6 +72,34 @@ export const STRETCH: Grid = place(
   ['.OO...OO.', 'SOOSSSOOS', 'SOOOOOOOO', '.OEOOOOEO', '.OOOOOOOO', '.OOOOOOOO', '.OOOOOOOO', '.OOOOOOOO', '.O.O..O.O', '.O.O..O.O'],
   AT + 1,
 )
+
+// Scratching its head, puzzled: the arm up at the side, moving.
+export const SCRATCH_A: Grid = place(
+  ['..OOOOOOOO.O', '..OEOOOOEOOO', 'OOOOOOOOOO..', 'OOOOOOOOOO..', '..OOOOOOOO..', '..OOOOOOOO..', '..O.O..O.O..', '..O.O..O.O..'],
+  AT,
+)
+export const SCRATCH_B: Grid = place(
+  ['..OOOOOOOOO.', '..OEOOOOEOOO', 'OOOOOOOOOO..', 'OOOOOOOOOO..', '..OOOOOOOO..', '..OOOOOOOO..', '..O.O..O.O..', '..O.O..O.O..'],
+  AT,
+)
+
+// A nightcap, drawn over whichever pose's head: three rows ending at the
+// head's top row.
+export function capped(grid: Grid): Grid {
+  const top = bounds(grid).top
+  const cap = ['.........W..', '...NNNNNNW..', '..NNNNNNNN..']
+  return grid.map((row, y) => {
+    const capRow = cap[y - (top - cap.length)]
+    if (capRow === undefined) return row
+    const cells = row.split('')
+    for (let i = 0; i < capRow.length; i++) {
+      const ch = capRow[i]
+      if (ch !== undefined && ch !== '.') cells[AT + i] = ch
+    }
+
+    return cells.join('')
+  })
+}
 
 // Three-quarter views and the back, for a spin: the shade marks the far side.
 export const SIDE_L: Grid = place(

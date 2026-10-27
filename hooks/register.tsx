@@ -2,7 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { ContextUsage, Mood } from '../types'
-import { STRIP_H, svg, widthFor } from './desktop'
+import { DEFAULT_VIEW, stripHeight, svg, widthFor } from './desktop'
+import type { View } from './desktop'
 import { COLUMNS } from './frames'
 import { ROWS, cells, newWalker, step } from './terminal'
 import type { Walker } from './terminal'
@@ -10,15 +11,25 @@ import type { Walker } from './terminal'
 const mood = atom({ plugin: 'pixel-pet', key: 'mood' } as const, 'idle')
 const isHidden = atom({ plugin: 'pixel-pet', key: 'isHidden' } as const, false)
 const context = atom({ plugin: 'pixel-pet', key: 'context' } as const, null)
+const activity = atom({ plugin: 'pixel-pet', key: 'activity' } as const, null)
+const agents = atom({ plugin: 'pixel-pet', key: 'agents' } as const, 0)
+const isNight = atom({ plugin: 'pixel-pet', key: 'isNight' } as const, false)
 
-const MOODS: Mood[] = ['idle', 'working', 'intense', 'happy', 'dizzy', 'sleeping', 'compacting']
+const MOODS: Mood[] = ['idle', 'working', 'intense', 'attention', 'puzzled', 'nod', 'happy', 'elated', 'dizzy', 'sleeping', 'compacting']
+const BUSY: Mood[] = ['working', 'intense', 'attention', 'puzzled']
 
 const TICK_MS = 150
+const NOD_MS = 1600
 const HAPPY_MS = 4200
+const ELATED_MS = 6000
 const DIZZY_MS = 2400
+const PUZZLED_MS = 2200
+const SHORT_TURN_MS = 15 * 1000
+const LONG_TURN_MS = 5 * 60 * 1000
 const INTENSE_AFTER_MS = 60 * 1000
 const SLEEP_AFTER_MS = 5 * 60 * 1000
 const DEMO_STEP_MS = 8000
+const INTRO_MS = 1900
 
 type Timer = { cancel: () => void }
 
@@ -26,22 +37,26 @@ type Timer = { cancel: () => void }
 const pet: {
   shown: Mood
   lastActivity: number
+  workStart: number
   // `/pet mood` holds a mood against the automatic changes; `/pet demo` too.
   isPinned: boolean
-  timers: { calm?: Timer; intense?: Timer; demo?: Timer }
+  timers: { calm?: Timer; intense?: Timer; puzzled?: Timer; demo?: Timer }
   // The terminal band's Raster, repainted on a timer while it is mounted.
   band: { requestId: string; columns: number } | null
   walker: Walker | null
   // The last time the band was asked to draw, for `/pet status`.
   lastDraw: { surface: string; at: number } | null
+  view: Pick<View, 'scale' | 'side' | 'hasMeter' | 'hasPile'>
 } = {
   shown: 'idle',
   lastActivity: 0,
+  workStart: 0,
   isPinned: false,
   timers: {},
   band: null,
   walker: null,
   lastDraw: null,
+  view: { scale: 3, side: 'left', hasMeter: true, hasPile: true },
 }
 
 function cancel(...names: (keyof typeof pet.timers)[]) {
@@ -61,44 +76,88 @@ async function settle($: EngineInterface, next: Mood) {
   if (!pet.isPinned) await setMood($, next)
 }
 
+// Working: the typing routine, or the frantic one once the turn has gone
+// on a while.
+async function workingMood($: EngineInterface): Promise<Mood> {
+  return (await $.clock.now()) - pet.workStart > INTENSE_AFTER_MS ? 'intense' : 'working'
+}
+
 // A turn is running: out comes the laptop, and after a minute of it the
 // typing gets frantic.
 async function wake($: EngineInterface) {
   pet.lastActivity = await $.clock.now()
-  if (pet.shown === 'working' || pet.shown === 'intense') return
-  cancel('calm', 'intense')
+  if (BUSY.includes(pet.shown)) return
+  pet.workStart = pet.lastActivity
+  cancel('calm', 'intense', 'puzzled')
   pet.timers.intense = $.clock.after(INTENSE_AFTER_MS, () => {
     if (pet.shown === 'working') void settle($, 'intense')
   })
   await settle($, 'working')
 }
 
-// The turn ended: a jump for an answer, a shake of the head for a cut.
-async function finish($: EngineInterface, isAnswered: boolean) {
+// Back from a wait or a scratch of the head, to the typing.
+async function resume($: EngineInterface) {
+  if (pet.shown === 'attention' || pet.shown === 'puzzled') await settle($, await workingMood($))
+}
+
+// The turn ended: a nod, a jump or a bigger one by how long it took, or a
+// shake of the head for a cut.
+async function finish($: EngineInterface, isAnswered: boolean, durationMs: number) {
   pet.lastActivity = await $.clock.now()
-  cancel('calm', 'intense')
-  const reaction: Mood = isAnswered ? 'happy' : 'dizzy'
-  pet.timers.calm = $.clock.after(isAnswered ? HAPPY_MS : DIZZY_MS, () => {
+  cancel('calm', 'intense', 'puzzled')
+  await update($, activity, () => null)
+  const reaction: Mood = !isAnswered ? 'dizzy' : durationMs < SHORT_TURN_MS ? 'nod' : durationMs < LONG_TURN_MS ? 'happy' : 'elated'
+  const held = { dizzy: DIZZY_MS, nod: NOD_MS, happy: HAPPY_MS, elated: ELATED_MS }[reaction] ?? HAPPY_MS
+  pet.timers.calm = $.clock.after(held, () => {
     if (pet.shown === reaction) void settle($, 'idle')
   })
   await settle($, reaction)
 }
 
-// Reads the context window's fill off the session and keeps it for the
-// meter; the sites drawing it redraw on their own.
+async function dozeOff($: EngineInterface) {
+  const now = await $.clock.now()
+  if (pet.shown === 'idle' && now - pet.lastActivity > SLEEP_AFTER_MS) await settle($, 'sleeping')
+}
+
+// Reads the context window's fill, and the five-hour window's, off the
+// session and keeps them for the meter; the sites drawing it redraw on
+// their own.
 async function refreshContext($: EngineInterface) {
   const usage = await $.session.usage()
+  const limit = usage.rateLimits.find(window => window.kind === 'five_hour')
   const next: ContextUsage = {
     percent: usage.context.percent ?? 0,
     tokens: usage.context.tokens ?? 0,
     window: usage.context.window,
+    ...(limit === undefined ? {} : { limitPercent: limit.percentUsed }),
   }
   await update($, context, () => next)
 }
 
-async function dozeOff($: EngineInterface) {
-  const now = await $.clock.now()
-  if (pet.shown === 'idle' && now - pet.lastActivity > SLEEP_AFTER_MS) await settle($, 'sleeping')
+// How many subagents run right now, off the engine's list.
+async function refreshAgents($: EngineInterface) {
+  const running = (await $.agent.list()).filter(agent => ['pending', 'running', 'waiting'].includes(agent.status))
+  await update($, agents, () => running.length)
+}
+
+// Between 22:00 and 06:00 on the host's clock.
+async function refreshNight($: EngineInterface) {
+  const hour = new Date(await $.clock.now()).getHours()
+  await update($, isNight, () => hour >= 22 || hour < 6)
+}
+
+// What the laptop's terminal says the model is doing, from the tool.
+function activityOf(tool: string): string {
+  if (['Read', 'Glob', 'Grep', 'LS', 'NotebookRead'].includes(tool)) return 'read'
+  if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) return 'edit'
+  if (tool === 'Bash') return 'bash'
+  if (['WebSearch', 'WebFetch'].includes(tool)) return 'web'
+  if (tool === 'Agent' || tool === 'Task') return 'agent'
+  if (tool === 'AskUserQuestion') return 'ask'
+  if (['TodoWrite', 'TaskCreate', 'TaskUpdate'].includes(tool)) return 'plan'
+  if (tool.startsWith('mcp__')) return 'mcp'
+
+  return 'tool'
 }
 
 // `/pet demo`: every mood in turn, then back to following the session.
@@ -120,7 +179,7 @@ async function paint($: EngineInterface) {
   const painted = await $.ui.blit({
     requestId: band.requestId,
     key: 'pet',
-    cells: cells(step(walker, pet.shown), band.columns),
+    cells: cells(step(walker, pet.shown), band.columns, await read($, context), pet.view.side),
   })
   if ('deny' in painted) pet.band = null
 }
@@ -129,7 +188,14 @@ function isMood(text: string): text is Mood {
   return (MOODS as string[]).includes(text)
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  pet.view = {
+    scale: options.size === '4' ? 4 : 3,
+    side: options.side === 'right' ? 'right' : 'left',
+    hasMeter: options.meter !== false,
+    hasPile: options.pile !== false,
+  }
+
   on('session.start', async ($, e, next) => {
     pet.lastActivity = await $.clock.now()
     const stored = await $.store.get('isHidden')
@@ -139,12 +205,14 @@ export const register: Register = on => {
     await $.command.register({
       name: 'pet',
       description: 'Your pixel pet: show, hide, demo, or pin a mood',
-      argumentHint: '[show|hide|status|demo|mood <idle|working|intense|happy|dizzy|sleeping|auto>]',
+      argumentHint: `[show|hide|status|demo|mood <${MOODS.join('|')}|auto>]`,
       immediate: true,
     })
 
     await refreshContext($)
+    await refreshNight($)
     $.clock.every(30_000, () => void dozeOff($))
+    $.clock.every(5 * 60_000, () => void refreshNight($))
     if (e.surface === 'terminal') {
       $.clock.every(TICK_MS, () => void paint($))
     }
@@ -159,12 +227,13 @@ export const register: Register = on => {
       const surfaces = await $.session.surfaces()
       const drawn = pet.lastDraw
       const ago = drawn === null ? 0 : Math.round(((await $.clock.now()) - drawn.at) / 1000)
+      const usage = await read($, context)
 
       return {
         text: [
           `Surfaces: ${surfaces.length === 0 ? 'none' : surfaces.join(', ')}`,
-          `Hidden: ${await read($, isHidden)}; mood: ${pet.shown}${pet.isPinned ? ' (pinned)' : ''}`,
-          `Context: ${(await read($, context))?.percent ?? '?'}%`,
+          `Hidden: ${await read($, isHidden)}; mood: ${pet.shown}${pet.isPinned ? ' (pinned)' : ''}; agents: ${await read($, agents)}`,
+          `Context: ${usage?.percent ?? '?'}%${usage?.limitPercent === undefined ? '' : `; 5h window: ${usage.limitPercent}%`}`,
           drawn === null
             ? 'The band above the prompt has not been asked to draw yet.'
             : `Last drawn on ${drawn.surface}, ${ago}s ago.`,
@@ -210,19 +279,59 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // A tool call: the terminal names it; a question to you is a wait; a
+  // failure, a scratch of the head; a subagent's, a mini pet.
   on('tool.call', async ($, e, next) => {
+    const isMain = e.agentId === undefined
+    const tool = String(e.tool)
     await wake($)
+    if (isMain) {
+      await update($, activity, () => activityOf(tool))
+      if (tool === 'AskUserQuestion' || tool === 'ExitPlanMode') await settle($, 'attention')
+    }
     const ran = await next(e)
-    if (e.agentId === undefined) await refreshContext($)
+    if (isMain) {
+      await resume($)
+      if (ran.isError === true && !('deny' in ran)) {
+        cancel('puzzled')
+        pet.timers.puzzled = $.clock.after(PUZZLED_MS, () => void resume($))
+        await settle($, 'puzzled')
+      }
+      await refreshContext($)
+    }
+    await refreshAgents($)
 
     return ran
   })
 
+  // The permission check: a verdict that asks you is a wait, until the
+  // tool goes ahead (its progress shows) or the call comes back.
+  on('tool.check', async ($, e, next) => {
+    const verdict = await next(e)
+    if (e.agentId === undefined && verdict.decision === 'ask' && BUSY.includes(pet.shown)) await settle($, 'attention')
+
+    return verdict
+  })
+
+  on('ui.render', { component: 'ToolProgress' }, async ($, e, next) => {
+    if (pet.shown === 'attention') await resume($)
+
+    return next(e)
+  })
+
+  on('agent.spawn', async ($, e, next) => {
+    const spawned = await next(e)
+    await refreshAgents($)
+
+    return spawned
+  })
+
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) {
-      await finish($, e.reason === 'answer')
+      await finish($, e.reason === 'answer', e.durationMs)
       await refreshContext($)
     }
+    await refreshAgents($)
 
     return next(e)
   })
@@ -243,7 +352,8 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    pet.lastDraw = { surface: e.surface, at: await $.clock.now() }
+    const now = await $.clock.now()
+    pet.lastDraw = { surface: e.surface, at: now }
     if (e.props.hasSurvey || (await read($, isHidden))) {
       pet.band = null
 
@@ -262,7 +372,7 @@ export const register: Register = on => {
       const walker = (pet.walker ??= newWalker())
       pet.band = { requestId: e.requestId, columns }
 
-      return <Raster key="pet" columns={columns} rows={ROWS} cells={cells(step(walker, current), columns, usage)} />
+      return <Raster key="pet" columns={columns} rows={ROWS} cells={cells(step(walker, current), columns, usage, pet.view.side)} />
     }
 
     if (e.surface === 'desktop') {
@@ -270,14 +380,23 @@ export const register: Register = on => {
       // Sized outright: left to itself the animated frame is 300px wide and
       // shrinks the art to fit.
       const width = widthFor(e.props.bodyColumns)
+      const view: View = {
+        ...DEFAULT_VIEW,
+        ...pet.view,
+        context: usage,
+        activity: await read($, activity),
+        agents: await read($, agents),
+        isNight: await read($, isNight),
+        hasIntro: now - pet.workStart < INTRO_MS,
+      }
 
       return (
         <Box alignItems="flex-end">
           <Svg
-            source={svg(current, width, usage)}
+            source={svg(current, width, view)}
             alt={`Your pixel pet is ${current}`}
             width={width}
-            height={STRIP_H}
+            height={stripHeight(view.scale)}
             isInteractive
           />
         </Box>

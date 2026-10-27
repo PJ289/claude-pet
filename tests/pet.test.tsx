@@ -33,8 +33,13 @@ function engine(on: On) {
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('command.run', () => ({}))
   on('session.usage', () => ({
-    value: { startedAt: 0, context: { tokens: 74000, window: 200000, percent: 37 }, rateLimits: [] },
+    value: {
+      startedAt: 0,
+      context: { tokens: 74000, window: 200000, percent: 37 },
+      rateLimits: [{ kind: 'five_hour', percentUsed: 41, source: 'api' }],
+    },
   }))
+  on('agent.list', () => ({ value: [] }))
 }
 
 test('the pet draws on the terminal and on the desktop', async ($, on) => {
@@ -70,7 +75,7 @@ test('the pet works while a turn runs and cheers when it ends', async ($, on) =>
 
   await $.turn.complete({
     answer: 'done',
-    durationMs: 10,
+    durationMs: 60000,
     isAborted: false,
     turnId: 't1',
     reason: 'answer',
@@ -113,4 +118,29 @@ test('the pet stomps the pile while the conversation compacts', async ($, on) =>
 
   await $.session.compact({ trigger: 'manual', messages: [summary] })
   expect(moods).toEqual(['compacting', 'idle'])
+})
+
+test('the options place and size the pet', { options: { size: '4', side: 'right', pile: false } }, async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/', surface: null, isInteractive: true })
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const art = await ui.find({ type: 'Svg' })
+  // Four pixels per art pixel: the strip is 14 rows of 4 plus 4.
+  expect(art?.props.height).toBe(60)
+  // No pile, so no 100% line; the battery rides along with the meter.
+  expect(String(art?.props.source)).not.toContain('>100%<')
+  expect(String(art?.props.source)).toContain('>41%<')
+  await ui.unmount()
+})
+
+test('a failed tool call puzzles the pet, a question holds its attention', async ($, on) => {
+  engine(on)
+  on('tool.call', (_, e) => (e.tool === 'Bash' ? { result: {}, isError: true, text: 'boom' } : { result: {} }))
+  await $.session.start({ cwd: '/', surface: null, isInteractive: true })
+
+  await $.tool.call({ tool: 'Bash', command: 'false' })
+  const puzzled = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(String((await puzzled.find({ type: 'Svg' }))?.props.alt)).toContain('puzzled')
+  await puzzled.unmount()
 })

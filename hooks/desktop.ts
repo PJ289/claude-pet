@@ -1,29 +1,99 @@
 // The desktop pet: one SVG whose SMIL animations breathe, blink, type and
-// jump it, so the surface animates it with no redraws. A new mood draws a
-// new SVG.
+// jump it, so the surface animates it with no redraws. A new mood, or a
+// change in what it shows, draws a new SVG.
 //
-// The pet has a place: a stage at the left end of the strip, on a floor
-// line, with a shadow under it. Every mood plays on that same stage.
+// The pet has a place: a stage at one end of the strip, on a floor line,
+// with a shadow under it, an in-tray pile of papers beside it and the
+// context meter at the other end. Every mood plays on that same stage.
 
 import type { ContextUsage, Mood } from '../types'
-import { BACK, COLUMNS, CROUCH, PULL, ROWS, SET, SIDE_L, SIDE_R, STRETCH, TYPE_A, TYPE_B, colorOf, front } from './frames'
+import {
+  BACK,
+  COLUMNS,
+  CROUCH,
+  PULL,
+  ROWS,
+  SCRATCH_A,
+  SCRATCH_B,
+  SET,
+  SIDE_L,
+  SIDE_R,
+  STRETCH,
+  TYPE_A,
+  TYPE_B,
+  capped,
+  colorOf,
+  front,
+} from './frames'
 import type { Grid } from './frames'
 
-// CSS pixels per art pixel.
-export const SCALE = 3
-const FRAME_W = COLUMNS * SCALE
-const FRAME_H = ROWS * SCALE
-export const STRIP_H = FRAME_H + 4
-const TOP = STRIP_H - FRAME_H
-const STAGE_X = 6
-// The strip's width for a band `columns` cells wide: the stage at the left,
-// the context meter at the right, never wider than the band is likely to be.
+// What one drawing shows beside the mood.
+export type View = {
+  context: ContextUsage | null
+  activity: string | null
+  agents: number
+  isNight: boolean
+  // Whether the working routine opens with the laptop coming out; a redraw
+  // mid-turn skips it, so a new activity label does not replay it.
+  hasIntro: boolean
+  scale: number
+  side: 'left' | 'right'
+  hasMeter: boolean
+  hasPile: boolean
+}
+
+export const DEFAULT_VIEW: View = {
+  context: null,
+  activity: null,
+  agents: 0,
+  isNight: false,
+  hasIntro: true,
+  scale: 3,
+  side: 'left',
+  hasMeter: true,
+  hasPile: true,
+}
+
+// The layout of one drawing: CSS pixels per art pixel and where things go.
+// Set by `svg` before it draws, read by everything beneath.
+let SCALE = 3
+let FRAME_W = COLUMNS * SCALE
+let FRAME_H = ROWS * SCALE
+let STRIP_H = FRAME_H + 4
+let TOP = STRIP_H - FRAME_H
+let FLOOR_Y = STRIP_H - 1
+let SHEET_W = 9 * SCALE
+let WIDTH = 456
+let IS_LEFT = true
+let STAGE_X = 6
+let PILE_X = 102
+
+export function stripHeight(scale: number): number {
+  return ROWS * scale + 4
+}
+
+function layout(view: View, width: number) {
+  SCALE = view.scale
+  FRAME_W = COLUMNS * SCALE
+  FRAME_H = ROWS * SCALE
+  STRIP_H = FRAME_H + 4
+  TOP = STRIP_H - FRAME_H
+  FLOOR_Y = STRIP_H - 1
+  SHEET_W = 9 * SCALE
+  WIDTH = width
+  IS_LEFT = view.side === 'left'
+  STAGE_X = IS_LEFT ? 6 : width - 6 - FRAME_W
+  PILE_X = IS_LEFT ? STAGE_X + FRAME_W + 4 * SCALE : STAGE_X - 4 * SCALE - SHEET_W
+}
+
+// The strip's width for a band `columns` cells wide: the stage at one end,
+// the context meter at the other, never wider than the band is likely to be.
 export function widthFor(columns: number): number {
   return Math.max(320, Math.min(520, Math.round(columns * 6.5)))
 }
-const FLOOR_Y = STRIP_H - 1
 
 const BODY = '#D06A4B'
+const GREY = '#9A9A96'
 const CONFETTI = ['#D06A4B', '#F2B49B', '#CFE8FF', '#B55C41', '#E8C547', '#D06A4B', '#F2B49B', '#CFE8FF']
 
 const fmt = (n: number) => String(Math.round(n * 1000) / 1000)
@@ -84,17 +154,20 @@ function breathing(seconds: number): string {
   return `<animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" keyTimes="0;0.5;1" dur="${fmt(seconds)}s" calcMode="spline" keySplines="${EASE};${EASE}" repeatCount="indefinite"/>`
 }
 
-// The floor line, fading out to the right so the stage has an end.
-function floor(width: number): string {
+// The floor line, fading out past the stage so it has an end.
+function floor(): string {
+  const [a, b] = IS_LEFT ? [0.4, 0] : [0, 0.4]
+
   return (
-    `<defs><linearGradient id="floor" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#9A9A96" stop-opacity="0.4"/><stop offset="0.55" stop-color="#9A9A96" stop-opacity="0.4"/><stop offset="1" stop-color="#9A9A96" stop-opacity="0"/></linearGradient></defs>` +
-    `<rect x="0" y="${FLOOR_Y}" width="${width}" height="1" fill="url(#floor)"/>`
+    `<defs><linearGradient id="floor" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="${GREY}" stop-opacity="${a}"/><stop offset="0.5" stop-color="${GREY}" stop-opacity="0.4"/><stop offset="1" stop-color="${GREY}" stop-opacity="${b}"/></linearGradient></defs>` +
+    `<rect x="0" y="${FLOOR_Y}" width="${WIDTH}" height="1" fill="url(#floor)"/>`
   )
 }
 
-// Pixel glyphs that pop up over the pet: a heart, a "!", a note.
+// Pixel glyphs that pop up over the pet: a heart, a "!", a "?".
 const HEART = ['.OO.OO.', 'OOOOOOO', 'OOOOOOO', '.OOOOO.', '..OOO..', '...O...']
 const BANG = ['O', 'O', 'O', 'O', '.', 'O']
+const QUERY = ['.OOO.', 'O...O', '....O', '...O.', '..O..', '.....', '..O..']
 function glyph(rows: string[], color: string): string {
   return rows
     .map((row, y) => {
@@ -126,22 +199,25 @@ const HOP = (on: string) =>
   `<animateTransform attributeName="transform" type="translate" values="0 0;0 -7;0 0" keyTimes="0;0.45;1" dur="0.42s" begin="${on}" calcMode="spline" keySplines="0.2 0.8 0.4 1;0.6 0 0.8 0.2" additive="sum"/>`
 
 // One click reaction: what the stage does, frames that take the scene's
-// place for `hideSeconds`, and what pops up.
+// place for `hideSeconds`, and what pops up. `ON` in its markup stands
+// for the click that starts it.
 type Reaction = { id: string; stage: string; frames?: Step[]; hideSeconds?: number; popup?: string }
 
-// A click on the pet, all inside the drawing, where SMIL hears it and
-// nothing reaches the hooks. Which reaction plays is luck: the hit areas
-// take turns being the visible one, a few times a second.
-function clickable(body: string): string {
+// Everything the pointer does on the pet, all inside the drawing, where
+// SMIL and CSS hear it and nothing reaches the hooks. A click plays one
+// of five reactions, by luck: the hit areas take turns being the visible
+// one, a few times a second. Each is split in a left and a right half, so
+// the pet's eyes can follow the pointer while it stands facing us.
+function clickable(body: string, hasEyesToTurn: boolean): string {
   const reactions: Reaction[] = [
     {
       id: 'heart',
-      stage: HOP('heart.click'),
-      popup: popup(glyph(HEART, '#E8566E'), 'heart.click', 1.1, 8.5, 1),
+      stage: HOP('ON'),
+      popup: popup(glyph(HEART, '#E8566E'), 'ON', 1.1, 8.5, 1),
     },
     {
       id: 'spin',
-      stage: HOP('spin.click'),
+      stage: HOP('ON'),
       hideSeconds: 0.36,
       frames: [
         { grid: front(0), ms: 60 },
@@ -153,20 +229,20 @@ function clickable(body: string): string {
     },
     {
       id: 'startle',
-      stage: `<animateTransform attributeName="transform" type="translate" values="0 0;4 0;3 0;0 0" keyTimes="0;0.3;0.7;1" dur="0.3s" begin="startle.click" additive="sum"/>`,
+      stage: `<animateTransform attributeName="transform" type="translate" values="0 0;4 0;3 0;0 0" keyTimes="0;0.3;0.7;1" dur="0.3s" begin="ON" additive="sum"/>`,
       hideSeconds: 0.45,
       frames: [
         { grid: CROUCH, ms: 300 },
         { grid: front('closed'), ms: 150 },
       ],
-      popup: popup(glyph(BANG, '#D06A4B'), 'startle.click', 0.8, 15, 0),
+      popup: popup(glyph(BANG, BODY), 'ON', 0.8, 15, 0),
     },
     {
       id: 'dance',
-      stage: `<animateTransform attributeName="transform" type="translate" values="0 0;-3 0;0 0;3 0;0 0;-3 0;0 0;3 0;0 0" dur="1.2s" begin="dance.click" additive="sum"/>`,
+      stage: `<animateTransform attributeName="transform" type="translate" values="0 0;-3 0;0 0;3 0;0 0;-3 0;0 0;3 0;0 0" dur="1.2s" begin="ON" additive="sum"/>`,
       hideSeconds: 1.2,
       frames: Array.from({ length: 8 }, (_, i) => ({ grid: front(i % 4 < 2 ? -1 : 1, i % 2 ? 'stepB' : 'stepA'), ms: 150 })),
-      popup: popup(`<text x="0" y="${px(2)}" font-size="12" font-weight="bold" fill="#D06A4B">♪</text>`, 'dance.click', 1.2, 17, 2),
+      popup: popup(`<text x="0" y="${px(2)}" font-size="12" font-weight="bold" fill="${BODY}">♪</text>`, 'ON', 1.2, 17, 2),
     },
     {
       id: 'wave',
@@ -180,41 +256,103 @@ function clickable(body: string): string {
       ],
     },
   ]
+  // A reaction's `begin` names both halves of its area.
+  const both = (id: string) => `${id}L.click; ${id}R.click`
+  const on = (r: Reaction, markup: string) => markup.split('begin="ON"').join(`begin="${both(r.id)}"`)
   const hides = reactions
     .filter(r => r.hideSeconds !== undefined)
-    .map(r => `<set attributeName="opacity" to="0" begin="${r.id}.click" dur="${fmt(r.hideSeconds ?? 0)}s"/>`)
+    .map(r => `<set attributeName="opacity" to="0" begin="${both(r.id)}" dur="${fmt(r.hideSeconds ?? 0)}s"/>`)
     .join('')
   const frames = reactions
     .filter(r => r.frames !== undefined)
-    .map(r => stage(clip(r.frames ?? [], { begin: `${r.id}.click`, repeat: 1, isHeld: false })))
+    .map(r => stage(clip(r.frames ?? [], { begin: both(r.id), repeat: 1, isHeld: false })))
     .join('')
+  const stages = reactions.map(r => on(r, r.stage)).join('')
+  const popups = reactions.map(r => on(r, r.popup ?? '')).join('')
   const period = 0.1 * reactions.length
+  const hitW = FRAME_W + 12
   const hits = reactions
     .map((r, i) => {
       const values = reactions.map((_, j) => (j === i ? 'visible' : 'hidden')).join(';')
       const keyTimes = reactions.map((_, j) => fmt(j / reactions.length)).join(';')
+      const cycle = `<animate attributeName="visibility" values="${values}" keyTimes="${keyTimes}" dur="${fmt(period)}s" calcMode="discrete" repeatCount="indefinite"/>`
 
       return (
-        `<rect id="${r.id}" x="0" y="0" width="${FRAME_W + STAGE_X}" height="${STRIP_H}" fill="#fff" fill-opacity="0" style="cursor:pointer">` +
-        `<animate attributeName="visibility" values="${values}" keyTimes="${keyTimes}" dur="${fmt(period)}s" calcMode="discrete" repeatCount="indefinite"/></rect>`
+        `<rect id="${r.id}L" x="${STAGE_X - 6}" y="0" width="${hitW / 2}" height="${STRIP_H}" fill="#fff" fill-opacity="0" style="cursor:pointer">${cycle}</rect>` +
+        `<rect id="${r.id}R" x="${STAGE_X - 6 + hitW / 2}" y="0" width="${hitW / 2}" height="${STRIP_H}" fill="#fff" fill-opacity="0" style="cursor:pointer">${cycle}</rect>`
       )
     })
     .join('')
+  // The eyes that follow the pointer: an overlay over the eye row of the
+  // standing pose, one glance per side, shown by CSS while its half is hovered.
+  const eyes = hasEyesToTurn
+    ? `<style>.eyes{opacity:0;pointer-events:none}${reactions.map(r => `#${r.id}L:hover~.eyesL`).join(',')}{opacity:1}${reactions.map(r => `#${r.id}R:hover~.eyesR`).join(',')}{opacity:1}</style>` +
+      ([-1, 1] as const)
+        .map(dir => {
+          const eyeRow = front(dir)[ROWS - 7] ?? ''
+          const blank = '.'.repeat(COLUMNS)
 
-  return (
-    `<g>${reactions.map(r => r.stage).join('')}` +
-    `<g>${hides}${body}</g>${frames}</g>` +
-    reactions.map(r => r.popup ?? '').join('') +
-    hits
-  )
+          // A body-coloured band a pixel taller than the row, since the pet
+          // breathes a pixel up and down under it.
+          const band = `<rect x="${px(2)}" y="${px(7) - 1}" width="${px(8)}" height="${SCALE + 2}" fill="${BODY}"/>`
+
+          return `<g class="eyes eyes${dir === -1 ? 'L' : 'R'}" transform="translate(${STAGE_X} ${TOP})">${band}${rects([...Array<string>(ROWS - 7).fill(blank), eyeRow])}</g>`
+        })
+        .join('')
+    : ''
+
+  return `<g>${stages}<g>${hides}${body}</g>${frames}</g>${popups}${hits}${eyes}`
+}
+
+// The context window's fill, as a row of cells at the strip's far end:
+// orange, amber past 70%, red past 90%. Before it, where the account has
+// one, the five-hour window as a battery.
+const CELLS = 20
+const CELL_W = 5
+const CELL_GAP = 2
+export function meterColor(percent: number): string {
+  return percent >= 90 ? '#E06C75' : percent >= 70 ? '#E8C547' : BODY
+}
+function meter(context: ContextUsage | null): string {
+  if (context === null) return ''
+  const percent = Math.max(0, Math.min(100, context.percent))
+  const filled = Math.round((percent / 100) * CELLS)
+  const barW = CELLS * (CELL_W + CELL_GAP) - CELL_GAP
+  const y = Math.round(STRIP_H / 2) - 4
+  const color = meterColor(percent)
+  // Laid out from the far end inward: the percent, the cells, "ctx", then
+  // the battery; `text` is anchored at the far end.
+  const end = IS_LEFT ? WIDTH - 8 : 8
+  const anchor = IS_LEFT ? 'end' : 'start'
+  const inward = (from: number, by: number) => (IS_LEFT ? from - by : from + by)
+  const barStart = IS_LEFT ? end - 30 - barW : end + 30
+  let out = `<text x="${end}" y="${y + 8}" font-size="10" font-weight="bold" fill="${percent >= 70 ? color : '#B8B8B4'}" text-anchor="${anchor}">${percent}%</text>`
+  for (let i = 0; i < CELLS; i++) {
+    out += `<rect x="${barStart + i * (CELL_W + CELL_GAP)}" y="${y}" width="${CELL_W}" height="8" fill="${i < filled ? color : GREY}" opacity="${i < filled ? 1 : 0.22}"/>`
+  }
+  const labelX = IS_LEFT ? barStart - 6 : barStart + barW + 6
+  out += `<text x="${labelX}" y="${y + 8}" font-size="10" fill="${GREY}" text-anchor="${anchor}">ctx</text>`
+
+  if (context.limitPercent !== undefined) {
+    const used = Math.max(0, Math.min(100, context.limitPercent))
+    const tint = meterColor(used)
+    const caseX = IS_LEFT ? inward(labelX, 24 + 20) : inward(labelX, 24)
+    // A battery: its case, its tip, and the used share filled in.
+    out +=
+      `<rect x="${caseX}" y="${y}" width="18" height="8" fill="none" stroke="${GREY}" stroke-opacity="0.6"/>` +
+      `<rect x="${caseX + 18}" y="${y + 2}" width="2" height="4" fill="${GREY}" fill-opacity="0.6"/>` +
+      `<rect x="${caseX + 2}" y="${y + 2}" width="${Math.round((14 * used) / 100)}" height="4" fill="${tint}"/>` +
+      `<text x="${IS_LEFT ? caseX - 4 : caseX + 24}" y="${y + 8}" font-size="10" fill="${used >= 70 ? tint : '#B8B8B4'}" text-anchor="${anchor}">${Math.round(used)}%</text>` +
+      `<text x="${IS_LEFT ? caseX - 30 : caseX + 50}" y="${y + 8}" font-size="10" fill="${GREY}" text-anchor="${anchor}">5h</text>`
+  }
+
+  return out
 }
 
 // The pet's in-tray: a pile of papers beside it that grows with the
 // context window, under a dashed line where 100% is. The sheets near the
 // top take the meter's amber and red; past 90% the pile sways.
-const PILE_X = 104
 const PILE_SHEETS = 13
-const SHEET_W = 27
 function sheetsOf(context: ContextUsage | null): number {
   const percent = context === null ? 0 : Math.max(0, Math.min(100, context.percent))
 
@@ -239,14 +377,17 @@ function squash(sheets: number): string {
   )
 }
 
-function pile(context: ContextUsage | null, isSquashed = false): string {
+function pile(context: ContextUsage | null, isSquashed: boolean): string {
   const percent = context === null ? 0 : Math.max(0, Math.min(100, context.percent))
   const sheets = sheetsOf(context)
   const ceiling = FLOOR_Y - PILE_SHEETS * SCALE - 2
+  const postX = IS_LEFT ? PILE_X - 6 : PILE_X + SHEET_W + 6
   // A dotted post from the floor to the line, so the room left is legible.
-  let out = `<line x1="${PILE_X - 6}" x2="${PILE_X - 6}" y1="${ceiling}" y2="${FLOOR_Y}" stroke="#9A9A96" stroke-opacity="0.35" stroke-dasharray="1 2"/>`
-  out += `<line x1="${PILE_X - 6}" x2="${PILE_X + SHEET_W + 6}" y1="${ceiling}" y2="${ceiling}" stroke="#9A9A96" stroke-opacity="0.55" stroke-dasharray="2 2"/>`
-  out += `<text x="${PILE_X + SHEET_W + 9}" y="${ceiling + 3}" font-size="8" fill="#9A9A96">100%</text>`
+  let out = `<line x1="${postX}" x2="${postX}" y1="${ceiling}" y2="${FLOOR_Y}" stroke="${GREY}" stroke-opacity="0.35" stroke-dasharray="1 2"/>`
+  out += `<line x1="${PILE_X - 6}" x2="${PILE_X + SHEET_W + 6}" y1="${ceiling}" y2="${ceiling}" stroke="${GREY}" stroke-opacity="0.55" stroke-dasharray="2 2"/>`
+  out += IS_LEFT
+    ? `<text x="${PILE_X + SHEET_W + 9}" y="${ceiling + 3}" font-size="8" fill="${GREY}">100%</text>`
+    : `<text x="${PILE_X - 9}" y="${ceiling + 3}" font-size="8" fill="${GREY}" text-anchor="end">100%</text>`
   let sheetsOut = ''
   for (let i = 0; i < sheets; i++) {
     const share = ((i + 1) / PILE_SHEETS) * 100
@@ -262,39 +403,53 @@ function pile(context: ContextUsage | null, isSquashed = false): string {
       `<g transform="translate(0 ${-FLOOR_Y})">${sheetsOut}</g></g></g>`
     )
   }
+  const cx = PILE_X + SHEET_W / 2
   const sway =
     percent >= 90
-      ? `<animateTransform attributeName="transform" type="rotate" values="0 ${PILE_X + SHEET_W / 2} ${FLOOR_Y};-2 ${PILE_X + SHEET_W / 2} ${FLOOR_Y};0 ${PILE_X + SHEET_W / 2} ${FLOOR_Y};2 ${PILE_X + SHEET_W / 2} ${FLOOR_Y};0 ${PILE_X + SHEET_W / 2} ${FLOOR_Y}" dur="1.6s" repeatCount="indefinite"/>`
+      ? `<animateTransform attributeName="transform" type="rotate" values="0 ${cx} ${FLOOR_Y};-2 ${cx} ${FLOOR_Y};0 ${cx} ${FLOOR_Y};2 ${cx} ${FLOOR_Y};0 ${cx} ${FLOOR_Y}" dur="1.6s" repeatCount="indefinite"/>`
       : ''
 
   return out + `<g>${sway}${sheetsOut}</g>`
 }
 
-// The context window's fill, as a row of cells at the right end of the
-// strip: orange, amber past 70%, red past 90%.
-const CELLS = 20
-const CELL_W = 5
-const CELL_GAP = 2
-export function meterColor(percent: number): string {
-  return percent >= 90 ? '#E06C75' : percent >= 70 ? '#E8C547' : '#D06A4B'
-}
-function meter(width: number, context: ContextUsage | null): string {
-  if (context === null) return ''
-  const percent = Math.max(0, Math.min(100, context.percent))
-  const filled = Math.round((percent / 100) * CELLS)
-  const barW = CELLS * (CELL_W + CELL_GAP) - CELL_GAP
-  const right = width - 8
-  const y = Math.round(STRIP_H / 2) - 4
-  const color = meterColor(percent)
-  let cells = ''
-  for (let i = 0; i < CELLS; i++) {
-    cells += `<rect x="${right - barW - 30 + i * (CELL_W + CELL_GAP)}" y="${y}" width="${CELL_W}" height="8" fill="${i < filled ? color : '#9A9A96'}" opacity="${i < filled ? 1 : 0.22}"/>`
+// One mini pet per running subagent, typing away in a row past the pile
+// (or past the stage, with no pile); more than three is a count.
+const MINI = 2
+function minis(count: number, hasPile: boolean): string {
+  if (count <= 0) return ''
+  const shown = Math.min(3, count)
+  const gap = 15 * MINI + 4
+  const edge = hasPile ? (IS_LEFT ? PILE_X + SHEET_W + 14 : PILE_X - 14) : IS_LEFT ? STAGE_X + FRAME_W + 8 : STAGE_X - 8
+  let out = ''
+  for (let i = 0; i < shown; i++) {
+    const x = IS_LEFT ? edge + i * gap : edge - (i + 1) * gap + 4
+    out +=
+      `<g transform="translate(${x} ${FLOOR_Y + 1 - ROWS * MINI}) scale(${fmt(MINI / SCALE)})">` +
+      clip(
+        [
+          { grid: TYPE_A, ms: 130 },
+          { grid: TYPE_B, ms: 130 },
+        ],
+        { begin: i * 0.07 },
+      ) +
+      `</g>`
+  }
+  if (count > shown) {
+    const x = IS_LEFT ? edge + shown * gap : edge - shown * gap
+    out += `<text x="${x}" y="${FLOOR_Y - 4}" font-size="10" font-weight="bold" fill="${GREY}" text-anchor="${IS_LEFT ? 'start' : 'end'}">+${count - shown}</text>`
   }
 
+  return out
+}
+
+// A dim over the strip and a crescent over the stage, between 22:00 and 06:00.
+const MOON = ['..OO.', '.O...', 'O....', 'O....', '.O...', '..OO.']
+function night(): string {
+  const x = IS_LEFT ? STAGE_X + FRAME_W - px(7) : STAGE_X + px(2)
+
   return (
-    `<text x="${right - barW - 36}" y="${y + 8}" font-size="10" fill="#9A9A96" text-anchor="end">ctx</text>` +
-    cells +
-    `<text x="${right}" y="${y + 8}" font-size="10" font-weight="bold" fill="${percent >= 70 ? color : '#B8B8B4'}" text-anchor="end">${percent}%</text>`
+    `<rect x="0" y="0" width="${WIDTH}" height="${STRIP_H}" fill="#0B0B1A" opacity="0.22" style="pointer-events:none"/>` +
+    `<g transform="translate(${x} ${TOP + 2})" opacity="0.8" style="pointer-events:none">${glyph(MOON, '#E8DFA0')}</g>`
   )
 }
 
@@ -334,28 +489,29 @@ function idle(): string {
   )
 }
 
-// A small terminal window above the laptop, lines of output typed in and
-// cleared, over and over. `period` is one fill-and-clear, in seconds.
-function terminalBubble(period: number): string {
+// A small terminal window above the laptop: a prompt line naming what the
+// model is doing, then lines of output typed in and cleared, over and
+// over. `period` is one fill-and-clear, in seconds.
+function terminalBubble(period: number, activity: string | null): string {
   const lines: [number, string][][] = [
-    [[5, 'c'], [3, 'L'], [6, 'c']],
-    [[4, 'c'], [6, 'c'], [2, 'L']],
-    [[6, 'L'], [2, 'c'], [5, 'c']],
+    [[5, 'c'], [3, 'L']],
+    [[4, 'c'], [6, 'c']],
+    [[6, 'L'], [2, 'c']],
   ]
   const total = period * lines.length
   let out = `<rect x="0" y="0" width="${px(10)}" height="${px(7)}" rx="3" fill="#161615" opacity="0.9"/>`
+  out += `<text x="${px(1)}" y="${px(1) + 6}" font-size="7" fill="${colorOf('L')}">&gt; ${activity ?? 'think'}</text>`
   lines.forEach((set, k) => {
     set.forEach(([length, color], i) => {
-      const on = (k * period + 0.25 + i * (period * 0.22)) / total
+      const on = (k * period + 0.25 + i * (period * 0.3)) / total
       const off = (k * period + period * 0.9) / total
 
       return (out +=
-        `<rect x="${px(1)}" y="${px(1 + i * 2)}" width="${px(length)}" height="${SCALE}" fill="${colorOf(color)}" opacity="0">` +
+        `<rect x="${px(1)}" y="${px(3 + i * 2)}" width="${px(length)}" height="${SCALE}" fill="${colorOf(color)}" opacity="0">` +
         discrete([0, 1, 0], [0, on, off], total) +
         `</rect>`)
     })
   })
-
   // A cursor blinks in the corner, so an empty window still reads as live.
   out += `<rect x="${px(8)}" y="${px(5)}" width="${SCALE}" height="${SCALE}" fill="${colorOf('L')}">${discrete([1, 0], [0, 0.5], 1)}</rect>`
 
@@ -365,16 +521,18 @@ function terminalBubble(period: number): string {
 // The mascot's own routine: a blink, out comes the laptop, a hop, and then
 // it types for as long as the turn runs. `isIntense` once it has gone on a
 // while: faster keys, a sweat drop, the terminal racing.
-function working(isIntense: boolean): string {
-  const intro: Step[] = [
-    { grid: STAND, ms: 350 },
-    { grid: front('closed'), ms: 120 },
-    { grid: STAND, ms: 250 },
-    { grid: PULL, ms: 420 },
-    { grid: SET, ms: 420 },
-    { grid: STRETCH, ms: 220 },
-    { grid: CROUCH, ms: 90 },
-  ]
+function working(isIntense: boolean, view: View): string {
+  const intro: Step[] = view.hasIntro
+    ? [
+        { grid: STAND, ms: 350 },
+        { grid: front('closed'), ms: 120 },
+        { grid: STAND, ms: 250 },
+        { grid: PULL, ms: 420 },
+        { grid: SET, ms: 420 },
+        { grid: STRETCH, ms: 220 },
+        { grid: CROUCH, ms: 90 },
+      ]
+    : []
   const introSeconds = intro.reduce((sum, step) => sum + step.ms, 0) / 1000
   const keyMs = isIntense ? 70 : 110
   const sweat = isIntense
@@ -385,6 +543,18 @@ function working(isIntense: boolean): string {
   const jitter = isIntense
     ? `<animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" dur="0.28s" repeatCount="indefinite"/>`
     : ''
+  const typing =
+    `<g>${jitter}` +
+    clip([
+      { grid: TYPE_A, ms: keyMs },
+      { grid: TYPE_B, ms: keyMs },
+    ]) +
+    `</g>${sweat}`
+  const bubble = terminalBubble(isIntense ? 1.3 : 2.6, view.activity)
+
+  if (intro.length === 0) {
+    return shadow(8, 7.5) + stage(typing + bubble)
+  }
 
   return (
     shadow(
@@ -395,35 +565,86 @@ function working(isIntense: boolean): string {
     ) +
     stage(
       `<g>${clip(intro, { repeat: 1 })}<set attributeName="opacity" to="0" begin="${fmt(introSeconds)}s"/></g>` +
-        `<g opacity="0"><set attributeName="opacity" to="1" begin="${fmt(introSeconds)}s"/>` +
-        `<g>${jitter}` +
+        `<g opacity="0"><set attributeName="opacity" to="1" begin="${fmt(introSeconds)}s"/>${typing}` +
+        `<g opacity="0"><set attributeName="opacity" to="1" begin="${fmt(introSeconds + 0.4)}s"/>${bubble}</g>` +
+        `</g>`,
+    )
+  )
+}
+
+// Claude is waiting on you, for a permission or an answer: the pet faces
+// the prompt and bounces, a "?" bobbing over it.
+function attention(): string {
+  const loop = 0.8
+
+  return (
+    shadow(12, 5.5, `<animate attributeName="rx" values="${px(5.5)};${px(4.5)};${px(5.5)}" keyTimes="0;0.4;1" dur="${loop}s" repeatCount="indefinite"/>`) +
+    stage(
+      `<g><animateTransform attributeName="transform" type="translate" values="0 0;0 -5;0 0;0 0" keyTimes="0;0.4;0.7;1" dur="${loop}s" calcMode="spline" keySplines="0.2 0.8 0.4 1;0.6 0 0.8 0.2;0 0 1 1" repeatCount="indefinite"/>` +
         clip([
-          { grid: TYPE_A, ms: keyMs },
-          { grid: TYPE_B, ms: keyMs },
+          { grid: STRETCH, ms: 320 },
+          { grid: front(1), ms: 480 },
         ]) +
-        `</g>${sweat}` +
-        `<g opacity="0"><set attributeName="opacity" to="1" begin="${fmt(introSeconds + 0.4)}s"/>${terminalBubble(isIntense ? 1.3 : 2.6)}</g>` +
+        `</g>` +
+        `<g transform="translate(${px(15)} 0)"><animateTransform attributeName="transform" type="translate" values="0 0;0 2;0 0" dur="${loop}s" repeatCount="indefinite" additive="sum"/>${glyph(QUERY, BODY)}</g>`,
+    )
+  )
+}
+
+// A tool call failed: it scratches its head.
+function puzzled(): string {
+  return (
+    shadow(12, 5.5) +
+    stage(
+      clip([
+        { grid: SCRATCH_A, ms: 200 },
+        { grid: SCRATCH_B, ms: 200 },
+      ]) +
+        `<g transform="translate(${px(14)} 0)" opacity="0.9"><animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" dur="1.2s" repeatCount="indefinite" additive="sum"/>${glyph(QUERY, GREY)}</g>`,
+    )
+  )
+}
+
+// A short turn's answer: a nod, no more.
+function nod(): string {
+  return (
+    shadow(12, 5.5) +
+    stage(
+      `<g><animateTransform attributeName="transform" type="translate" values="0 0;0 2;0 0;0 2;0 0;0 0" keyTimes="0;0.15;0.3;0.45;0.6;1" dur="1.5s" repeatCount="indefinite"/>` +
+        clip([
+          { grid: STAND, ms: 300 },
+          { grid: front('closed'), ms: 120 },
+          { grid: STAND, ms: 380 },
+          { grid: front('closed'), ms: 120 },
+          { grid: STAND, ms: 580 },
+        ]) +
         `</g>`,
     )
   )
 }
 
 // The answer landed: a real jump, crouch, stretch, land, with confetti.
-function happy(): string {
-  const loop = 1.4
+// Elated, after a long turn: higher, faster, twice the confetti.
+function happy(isElated: boolean): string {
+  const loop = isElated ? 1.1 : 1.4
+  const height = isElated ? 20 : 14
   const keyTimes = '0;0.086;0.33;0.514;1'
-  const jump = `<animateTransform attributeName="transform" type="translate" values="0 0;0 0;0 -14;0 0;0 0" keyTimes="${keyTimes}" dur="${loop}s" calcMode="spline" keySplines="0 0 1 1;0.2 0.8 0.4 1;0.6 0 0.8 0.2;0 0 1 1" repeatCount="indefinite"/>`
-  const confetti = CONFETTI.map((color, i) => {
-    const dx = (i - 3.5) * 9 + (i % 2 ? 3 : -3)
-    const peak = -(10 + (i % 3) * 4)
-    const fall = 26
+  const jump = `<animateTransform attributeName="transform" type="translate" values="0 0;0 0;0 ${-height};0 0;0 0" keyTimes="${keyTimes}" dur="${loop}s" calcMode="spline" keySplines="0 0 1 1;0.2 0.8 0.4 1;0.6 0 0.8 0.2;0 0 1 1" repeatCount="indefinite"/>`
+  const pieces = isElated ? [...CONFETTI, ...CONFETTI] : CONFETTI
+  const confetti = pieces
+    .map((color, i) => {
+      const n = pieces.length
+      const dx = (i - (n - 1) / 2) * (isElated ? 5.5 : 9) + (i % 2 ? 3 : -3)
+      const peak = -(10 + (i % 3) * 4 + (isElated ? 6 : 0))
+      const fall = 26
 
-    return (
-      `<rect x="${px(12) - 2}" y="${px(6)}" width="4" height="4" fill="${color}" opacity="0">` +
-      `<animateTransform attributeName="transform" type="translate" values="0 0;0 0;${fmt(dx * 0.55)} ${peak};${fmt(dx)} ${fall};${fmt(dx)} ${fall}" keyTimes="0;0.25;0.45;0.8;1" dur="${loop}s" calcMode="spline" keySplines="0 0 1 1;0.2 0.8 0.5 1;0.5 0 0.9 0.4;0 0 1 1" repeatCount="indefinite"/>` +
-      `<animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.25;0.27;0.75;0.85;1" dur="${loop}s" repeatCount="indefinite"/></rect>`
-    )
-  }).join('')
+      return (
+        `<rect x="${px(12) - 2}" y="${px(6)}" width="4" height="4" fill="${color}" opacity="0">` +
+        `<animateTransform attributeName="transform" type="translate" values="0 0;0 0;${fmt(dx * 0.55)} ${peak};${fmt(dx)} ${fall};${fmt(dx)} ${fall}" keyTimes="0;0.25;0.45;0.8;1" dur="${loop}s" calcMode="spline" keySplines="0 0 1 1;0.2 0.8 0.5 1;0.5 0 0.9 0.4;0 0 1 1" repeatCount="indefinite"/>` +
+        `<animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.25;0.27;0.75;0.85;1" dur="${loop}s" repeatCount="indefinite"/></rect>`
+      )
+    })
+    .join('')
 
   return (
     shadow(12, 5.5, `<animate attributeName="rx" values="${px(5.5)};${px(5.5)};${px(3.5)};${px(5.5)};${px(5.5)}" keyTimes="${keyTimes}" dur="${loop}s" repeatCount="indefinite"/>`) +
@@ -455,7 +676,8 @@ function dizzy(): string {
   )
 }
 
-function sleeping(): string {
+function sleeping(view: View): string {
+  const pose = front('sleepy', 'sit')
   const snore = [0, 1]
     .map(
       i =>
@@ -465,17 +687,17 @@ function sleeping(): string {
     )
     .join('')
 
-  return shadow(12, 5.5) + stage(`<g>${breathing(3.6)}${rects(front('sleepy', 'sit'))}</g>${snore}`)
+  return shadow(12, 5.5) + stage(`<g>${breathing(3.6)}${rects(view.isNight ? capped(pose) : pose)}</g>${snore}`)
 }
 
 // Compacting: the pet walks over to the in-tray, hops on and stomps the
 // pile down, dust flying, until the compaction is through.
-function compacting(context: ContextUsage | null): string {
-  const sheets = sheetsOf(context)
+function compacting(view: View): string {
+  const sheets = view.hasPile ? sheetsOf(view.context) : 0
   const h = sheets * SCALE
   const hk = h * collapseOf(sheets)
-  const dx = PILE_X + SHEET_W / 2 - (px(12) + STAGE_X)
-  const walk: Step[] = Array.from({ length: 7 }, (_, i) => ({ grid: front(1, i % 2 ? 'stepB' : 'stepA'), ms: 100 }))
+  const dx = view.hasPile ? PILE_X + SHEET_W / 2 - (px(12) + STAGE_X) : 0
+  const walk: Step[] = Array.from({ length: 7 }, (_, i) => ({ grid: front(IS_LEFT ? 1 : -1, i % 2 ? 'stepB' : 'stepA'), ms: 100 }))
   const intro = clip([...walk, { grid: STRETCH, ms: 300 }, { grid: [], ms: 10 }], { repeat: 1 })
   // Each cycle: the impact, up again, a crouch, and the leap.
   const stomp = clip(
@@ -489,11 +711,12 @@ function compacting(context: ContextUsage | null): string {
   )
   const go = `<animateTransform attributeName="transform" type="translate" values="0 0;${fmt(dx)} 0;${fmt(dx)} ${fmt(-h)};${fmt(dx)} ${fmt(-hk)}" keyTimes="0;0.7;0.97;1" dur="${STOMP_BEGIN_S}s" calcMode="spline" keySplines="0 0 1 1;0.2 0.8 0.4 1;0 0 1 1" fill="freeze" additive="sum"/>`
   const bounce = `<animateTransform attributeName="transform" type="translate" values="0 ${fmt(0.18 * hk)};0 0;0 0;0 0;0 -10;0 0" keyTimes="0;0.25;0.42;0.58;0.78;1" dur="${STOMP_S}s" begin="${STOMP_BEGIN_S}s" calcMode="spline" keySplines="0 0 1 1;0 0 1 1;0 0 1 1;0.2 0.8 0.4 1;0.6 0 0.8 0.2" repeatCount="indefinite" additive="sum"/>`
+  const cx = view.hasPile ? PILE_X + SHEET_W / 2 : px(12) + STAGE_X
   const dust = [-1, 1]
     .map(
       dir =>
-        `<g transform="translate(${PILE_X + SHEET_W / 2 + dir * 14} ${FLOOR_Y - 3})" opacity="0">` +
-        `<rect x="-1" y="-1" width="3" height="3" fill="#9A9A96"/><rect x="${dir * 4}" y="-4" width="2" height="2" fill="#9A9A96"/>` +
+        `<g transform="translate(${cx + dir * 14} ${FLOOR_Y - 3})" opacity="0">` +
+        `<rect x="-1" y="-1" width="3" height="3" fill="${GREY}"/><rect x="${dir * 4}" y="-4" width="2" height="2" fill="${GREY}"/>` +
         `<animate attributeName="opacity" values="1;0;0" keyTimes="0;0.4;1" dur="${STOMP_S}s" begin="${STOMP_BEGIN_S}s" repeatCount="indefinite"/>` +
         `<animateTransform attributeName="transform" type="translate" values="0 0;${dir * 8} -3;${dir * 8} -3" keyTimes="0;0.4;1" dur="${STOMP_S}s" begin="${STOMP_BEGIN_S}s" repeatCount="indefinite" additive="sum"/></g>`,
     )
@@ -502,19 +725,36 @@ function compacting(context: ContextUsage | null): string {
   return `<g transform="translate(${STAGE_X} ${TOP})">${go}${bounce}${intro}${stomp}</g>${dust}`
 }
 
-const SCENES: Record<Mood, (context: ContextUsage | null) => string> = {
+const SCENES: Record<Mood, (view: View) => string> = {
   idle,
-  working: () => working(false),
-  intense: () => working(true),
-  happy,
+  working: view => working(false, view),
+  intense: view => working(true, view),
+  attention,
+  puzzled,
+  nod,
+  happy: () => happy(false),
+  elated: () => happy(true),
   dizzy,
   sleeping,
   compacting,
 }
 
-export function svg(mood: Mood, width: number, context: ContextUsage | null = null): string {
+// The moods in which the pet stands facing us, so its eyes can follow the
+// pointer.
+const FACING: Mood[] = ['idle', 'nod']
+
+export function svg(mood: Mood, width: number, view: View = DEFAULT_VIEW): string {
+  layout(view, width)
+
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${STRIP_H}" viewBox="0 0 ${width} ${STRIP_H}" shape-rendering="crispEdges" style="display:block">` +
-    `<g font-family="ui-monospace, Menlo, Consolas, monospace">${floor(width)}${pile(context, mood === 'compacting')}${meter(width, context)}${clickable(SCENES[mood](context))}</g></svg>`
+    `<g font-family="ui-monospace, Menlo, Consolas, monospace">` +
+    floor() +
+    (view.hasPile ? pile(view.context, mood === 'compacting') : '') +
+    (view.hasMeter ? meter(view.context) : '') +
+    minis(view.agents, view.hasPile) +
+    clickable(SCENES[mood](view), FACING.includes(mood)) +
+    (view.isNight ? night() : '') +
+    `</g></svg>`
   )
 }

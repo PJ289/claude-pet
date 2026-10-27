@@ -1,8 +1,44 @@
 {
   "name": "pixel-pet",
-  "version": "0.8.0",
-  "description": "A tiny pixel-art pet that wanders above the prompt and reacts to what Claude is doing",
-  "author": { "name": "pj289" },
+  "version": "0.9.0",
+  "description": "A tiny pixel-art pet that lives above the prompt and reacts to what Claude is doing",
+  "author": {
+    "name": "pj289"
+  },
   "license": "MIT",
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "size": {
+      "type": "string",
+      "description": "Pixels per art pixel: 3 is small, 4 is larger",
+      "options": [
+        "3",
+        "4"
+      ],
+      "default": "3",
+      "title": "Size"
+    },
+    "side": {
+      "type": "string",
+      "description": "Which end of the strip the pet stands at",
+      "options": [
+        "left",
+        "right"
+      ],
+      "default": "left",
+      "title": "Side"
+    },
+    "meter": {
+      "type": "boolean",
+      "description": "Show the context meter (cells and percentage)",
+      "default": true,
+      "title": "Context meter"
+    },
+    "pile": {
+      "type": "boolean",
+      "description": "Show the in-tray pile of papers beside the pet",
+      "default": true,
+      "title": "Paper pile"
+    }
+  }
 }
