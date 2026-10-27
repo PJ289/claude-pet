@@ -12,7 +12,7 @@ A tiny pixel-art pet for Claude Code. It lives in a thin strip just above the pr
 It draws on two surfaces:
 
 - **Claude desktop app**: an animated SVG. The animation runs in the app itself, so it needs no redraws.
-- **Terminal**: a 3-row strip of half-block pixels, repainted about 7 times a second.
+- **Terminal**: a 4-row strip of half-block pixels, repainted about 7 times a second.
 
 The engine's `[-]` mark next to the strip collapses it. `/pet hide` and `/pet show` (or `/pet` to toggle) hide or show it, `/pet status` says where it is drawn, and that setting carries over to future sessions.
 
@@ -76,7 +76,7 @@ claude --plugin-dir .      # run a session with the pet loaded from this folder
 ```
 
 - `hooks/register.tsx`: the hooks (moods, the `/pet` command, drawing the band)
-- `hooks/sprites.ts`: the 11×6 pixel art
+- `hooks/sprites.ts`: the 12×8 pixel art
 - `hooks/desktop.ts`: the SMIL-animated SVG for the desktop app
 - `hooks/terminal.ts`: the walker and the half-block Raster encoding for the terminal
 - `types/index.d.ts`: the session state contract (`mood`, `isHidden`)

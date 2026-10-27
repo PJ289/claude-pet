@@ -78,7 +78,7 @@ export function step(walker: Walker, mood: Mood, columns: number): Frame {
   const legs = Math.floor(walker.tick / (isWorking ? 1 : 2)) % 2 === 0 ? 'stepA' : 'stepB'
   const glyph = isWorking ? (SPARK[walker.tick % SPARK.length] ?? null) : null
 
-  return { pose: { eyes: eyes ?? walker.dir, arms: 'out', legs }, glyph }
+  return { pose: { eyes: eyes ?? 0, arms: 'out', legs }, glyph }
 }
 
 function blinks(walker: Walker): boolean {

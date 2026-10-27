@@ -2,14 +2,17 @@
 // the surface animates it with no redraws. A new mood draws a new SVG.
 
 import type { Mood } from '../types'
-import { BODY, HEIGHT, WIDTH, colorOf, legs, sprite, torso } from './sprites'
-import type { Eyes } from './sprites'
+import { BODY, EYE_ROW, HEIGHT, WIDTH, colorOf, legs, sprite, torso } from './sprites'
 
-const SCALE = 4
+// CSS pixels per art pixel: the size of the mascot on Claude's new-chat page.
+const SCALE = 6
 const PET_W = WIDTH * SCALE
 const PET_H = HEIGHT * SCALE
-export const STRIP_H = PET_H + 16
+// Headroom above the pet for a hop, a spark or a snore; it stands on the
+// bottom edge, right on top of the prompt box.
+export const STRIP_H = PET_H + 18
 const TOP = STRIP_H - PET_H
+const LEGS_ROW = HEIGHT - 2
 
 const SPARKS = ['✢', '✳', '✶', '✻', '✽']
 
@@ -49,22 +52,28 @@ function cycle(index: number, count: number, period: number): string {
 
 function blink(): string {
   // Body-coloured lids over the eye row, shut for a moment every few seconds.
-  const lid = `<rect x="${2 * SCALE}" y="${SCALE}" width="${7 * SCALE}" height="${SCALE}" fill="${BODY}"/>`
+  const lid = `<rect x="${2 * SCALE}" y="${EYE_ROW * SCALE}" width="${8 * SCALE}" height="${SCALE}" fill="${BODY}"/>`
   const dur = 3.5 + Math.random() * 2.5
 
   return `<g opacity="0">${lid}${discrete([0, 1, 0], [0, 0.95, 0.98], dur)}</g>`
 }
 
-function eyesOnly(eyes: Eyes): string {
-  return rects(torso(eyes, 'out').map(row => row.replace(/O/g, '.')))
+// The eyes alone, glancing aside by half an art pixel: a whole one would set
+// an eye on the body's edge.
+function eyesOnly(glance: -1 | 0 | 1): string {
+  const eyes = rects(torso(0, 'out').map(row => row.replace(/O/g, '.')))
+
+  return `<g transform="translate(${(glance * SCALE) / 2} 0)">${eyes}</g>`
 }
 
-type Segment = { x: number; isMoving: boolean; dir: -1 | 0 | 1 }
+type Segment = { x: number; isMoving: boolean; eyes: -1 | 0 | 1 }
 
-// A looping walk over the strip: stretches of walking between random spots,
-// with rests between them when `rest` is set.
+const glance = (): -1 | 0 | 1 => ([-1, 0, 0, 1] as const)[Math.floor(Math.random() * 4)] ?? 0
+
+// A looping walk over the strip: stretches of walking between random spots
+// and, when `rest` is set, rests between them where it looks around.
 function walk(width: number, speed: number, rest: boolean): string {
-  const room = Math.max(1, width - PET_W)
+  const room = Math.max(1, width - PET_W - 24)
   const start = Math.random() * room
   const points: Segment[] = []
   const times: number[] = [0]
@@ -72,48 +81,49 @@ function walk(width: number, speed: number, rest: boolean): string {
   let t = 0
 
   const go = (target: number) => {
-    const dir = target > x ? 1 : -1
-    points.push({ x, isMoving: true, dir })
+    points.push({ x, isMoving: true, eyes: target > x ? 1 : -1 })
     t += Math.max(0.2, Math.abs(target - x) / speed)
     times.push(t)
     x = target
     if (rest) {
-      points.push({ x, isMoving: false, dir: 0 })
-      t += 1 + Math.random() * 3
-      times.push(t)
+      for (let i = 0; i < 2; i++) {
+        points.push({ x, isMoving: false, eyes: glance() })
+        t += 1 + Math.random() * 2.5
+        times.push(t)
+      }
     }
   }
 
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 4; i++) {
     let target = Math.random() * room
-    if (Math.abs(target - x) < PET_W / 2) {
+    if (Math.abs(target - x) < PET_W) {
       target = x > room / 2 ? x - room / 2 : x + room / 2
     }
     go(target)
   }
   go(start)
-  points.push({ x, isMoving: false, dir: 0 })
+  points.push({ x, isMoving: false, eyes: 0 })
 
   const keyTimes = times.map(time => time / t)
   const moves = `<animateTransform attributeName="transform" type="translate" values="${points.map(p => `${fmt(p.x)} ${TOP}`).join(';')}" keyTimes="${keyTimes.map(fmt).join(';')}" dur="${fmt(t)}s" repeatCount="indefinite"/>`
   const layer = (body: string, show: (p: Segment) => boolean) =>
     `<g>${body}${discrete(points.map(p => (show(p) ? 1 : 0)), keyTimes, t)}</g>`
-  const stride = speed > 50 ? 0.12 : 0.22
+  const stride = speed > 60 ? 0.12 : 0.2
 
   const walking =
-    `<g>${rects(legs('stepA'), 4)}${cycle(0, 2, stride)}</g>` +
-    `<g>${rects(legs('stepB'), 4)}${cycle(1, 2, stride)}</g>`
+    `<g>${rects(legs('stepA'), LEGS_ROW)}${cycle(0, 2, stride)}</g>` +
+    `<g>${rects(legs('stepB'), LEGS_ROW)}${cycle(1, 2, stride)}</g>`
 
   return (
     `<g transform="translate(${fmt(start)} ${TOP})">${moves}` +
     rects(torso('closed', 'out')) +
-    layer(eyesOnly(-1), p => p.dir === -1) +
-    layer(eyesOnly(0), p => p.dir === 0) +
-    layer(eyesOnly(1), p => p.dir === 1) +
+    layer(eyesOnly(-1), p => p.eyes === -1) +
+    layer(eyesOnly(0), p => p.eyes === 0) +
+    layer(eyesOnly(1), p => p.eyes === 1) +
     blink() +
     layer(walking, p => p.isMoving) +
-    layer(rects(legs('stand'), 4), p => !p.isMoving) +
-    (speed > 50 ? sparks() : '') +
+    layer(rects(legs('stand'), LEGS_ROW), p => !p.isMoving) +
+    (speed > 60 ? sparks() : '') +
     `</g>`
   )
 }
@@ -121,7 +131,7 @@ function walk(width: number, speed: number, rest: boolean): string {
 function sparks(): string {
   return SPARKS.map(
     (glyph, i) =>
-      `<text x="${PET_W + 2}" y="2" font-size="15" font-weight="bold" fill="${BODY}" opacity="0">${glyph}${cycle(i, SPARKS.length, 0.15)}</text>`,
+      `<text x="${PET_W + 2}" y="0" font-size="16" font-weight="bold" fill="${BODY}" opacity="0">${glyph}${cycle(i, SPARKS.length, 0.15)}</text>`,
   ).join('')
 }
 
@@ -130,24 +140,24 @@ function happy(width: number): string {
 
   return (
     `<g transform="translate(${fmt(x)} ${TOP})"><g>` +
-    `<animateTransform attributeName="transform" type="translate" values="0 0;0 -6;0 0" dur="0.5s" repeatCount="indefinite"/>` +
-    `<g>${rects(torso(0, 'up'))}${cycle(0, 2, 0.25)}</g>` +
-    `<g>${rects(torso(0, 'out'))}${cycle(1, 2, 0.25)}</g>` +
-    rects(legs('stand'), 4) +
+    `<animateTransform attributeName="transform" type="translate" values="0 0;0 -10;0 0" keyTimes="0;0.4;1" dur="0.55s" repeatCount="indefinite"/>` +
+    `<g>${rects(torso(0, 'up'))}${cycle(0, 2, 0.275)}</g>` +
+    `<g>${rects(torso(0, 'out'))}${cycle(1, 2, 0.275)}</g>` +
+    rects(legs('stand'), LEGS_ROW) +
     `</g>` +
-    `<text x="-14" y="0" font-size="15" font-weight="bold" fill="${BODY}">✻</text>` +
-    `<text x="${PET_W + 2}" y="0" font-size="15" font-weight="bold" fill="${BODY}">✻</text>` +
+    `<text x="-18" y="2" font-size="16" font-weight="bold" fill="${BODY}">✻</text>` +
+    `<text x="${PET_W + 4}" y="2" font-size="16" font-weight="bold" fill="${BODY}">✻</text>` +
     `</g>`
   )
 }
 
 function sleeping(width: number): string {
-  const x = Math.max(0, Math.min(width - PET_W, width * 0.3))
+  const x = Math.max(0, Math.min(width - PET_W - 30, width * 0.3))
   const snore = [0, 1, 2]
     .map(
       i =>
-        `<text x="${PET_W + i * 6}" y="${4 * SCALE}" font-size="${10 + i * 2}" fill="${BODY}" opacity="0">z` +
-        `<animate attributeName="y" values="${4 * SCALE};${-2}" dur="3s" begin="${i}s" repeatCount="indefinite"/>` +
+        `<text x="${PET_W + i * 8}" y="${3 * SCALE}" font-size="${11 + i * 3}" font-weight="bold" fill="${BODY}" opacity="0">z` +
+        `<animate attributeName="y" values="${3 * SCALE};${-TOP + 14}" dur="3s" begin="${i}s" repeatCount="indefinite"/>` +
         `<animate attributeName="opacity" values="0;1;0" dur="3s" begin="${i}s" repeatCount="indefinite"/></text>`,
     )
     .join('')
@@ -155,7 +165,7 @@ function sleeping(width: number): string {
   return (
     `<g transform="translate(${fmt(x)} ${TOP})">` +
     `<g>${rects(sprite({ eyes: 'sleepy', arms: 'out', legs: 'sit' }))}` +
-    `<animateTransform attributeName="transform" type="translate" values="0 0;0 1;0 0" dur="3s" repeatCount="indefinite"/></g>` +
+    `<animateTransform attributeName="transform" type="translate" values="0 0;0 2;0 0" dur="3s" repeatCount="indefinite"/></g>` +
     snore +
     `</g>`
   )
@@ -167,10 +177,10 @@ export function svg(mood: Mood, width: number): string {
       ? happy(width)
       : mood === 'sleeping'
         ? sleeping(width)
-        : walk(width, mood === 'working' ? 80 : 28, mood !== 'working')
+        : walk(width, mood === 'working' ? 90 : 36, mood !== 'working')
 
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${STRIP_H}" viewBox="0 0 ${width} ${STRIP_H}" shape-rendering="crispEdges">` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${STRIP_H}" viewBox="0 0 ${width} ${STRIP_H}" shape-rendering="crispEdges" style="display:block">` +
     `<g font-family="ui-monospace, Menlo, monospace">${scene}</g></svg>`
   )
 }

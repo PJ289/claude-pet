@@ -174,13 +174,16 @@ export const register: Register = on => {
 
     if (e.surface === 'desktop') {
       const { Box, Svg } = $.ui.resolve(e)
-      const width = Math.max(160, Math.min(720, e.props.bodyColumns * 8))
+      // Sized outright: left to itself the animated frame is 300px wide and
+      // shrinks the art to fit.
+      const width = Math.max(240, Math.min(480, e.props.bodyColumns * 7))
 
       return (
-        <Box>
+        <Box alignItems="flex-end">
           <Svg
             source={svg(current, width)}
             alt={`Your pixel pet is ${current}`}
+            width={width}
             height={STRIP_H}
             isInteractive
           />
