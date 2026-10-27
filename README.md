@@ -57,11 +57,20 @@ Answer `y` to add the marketplace and pick the **user** scope, so the pet shows 
 
 ### SSH sessions
 
-An SSH session runs Claude Code on the remote host, so the plugin loads from that host's `~/.claude`. Install it there once with the same shell command:
+**From a terminal over SSH**, the plugin runs on the remote host, so install it there once with the same shell command; the pet draws in block characters:
 
 ```
 ssh my-host 'claude plugin install pixel-pet --marketplace PJ289/claude-pet'
 ```
+
+**From the desktop app's SSH sessions**, the app ignores plugins installed on the host: it syncs the plugins saved in the app to `~/.claude/remote/plugins/` on the host and starts its own engine with them, but [the sync leaves out each plugin's `hooks/` folder](https://github.com/anthropics/claude-code/issues/83643), and this whole plugin lives there, so the pet never loads (the session says *runs without its hooks*). Until the app syncs hooks, complete the synced copy yourself. On the host:
+
+```
+git clone https://github.com/PJ289/claude-pet ~/claude-pet
+~/claude-pet/scripts/desktop-ssh-fix.sh
+```
+
+Then open a new SSH session from the app. The script finds the app's copy of pixel-pet and adds `hooks/`, `types/` and `tsconfig.json` from the clone; run it again if the app re-syncs and the pet goes missing, and `git pull` in `~/claude-pet` first to update. The app has to have connected to the host at least once (so the copy exists), and the plugin has to be saved and enabled in the app.
 
 ### Cloud sessions
 
@@ -93,6 +102,7 @@ claude --plugin-dir .      # run a session with the pet loaded from this folder
 - `types/index.d.ts`: the session state contract (`mood`, `isHidden`, `context`, `activity`, `agents`, `isNight`)
 - `hooks/desktop.ts`: the SMIL-animated SVG for the desktop app
 - `hooks/terminal.ts`: the walker and the half-block Raster encoding for the terminal
+- `scripts/desktop-ssh-fix.sh`: completes the desktop app's synced copy on an SSH host with the hooks it leaves out
 
 ## License
 
