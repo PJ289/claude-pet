@@ -4,17 +4,19 @@ A tiny pixel-art pet for Claude Code. It lives in a thin strip just above the pr
 
 | Mood | When | What it does |
 | --- | --- | --- |
-| idle | nothing is running | wanders back and forth, stops now and then, blinks |
-| working | a turn is running or a tool is being called | trots faster, with a spinning spark |
-| happy | a turn has just finished with an answer | waves its arms for a few seconds |
-| sleeping | nothing has happened for 5 minutes | sits down and snores `z z Z` |
+| idle | nothing is running | wanders back and forth, stops to look around, blinks |
+| working | a turn is running | the mascot's own routine: pulls out a laptop, sets it down, hops, hammers the keys |
+| engineer | Claude edits or writes a file | hard hat and hammer on an anvil, sparks flying, for a few seconds |
+| rocket | a turn has run for over a minute | rides a rocket across the strip, flame flickering |
+| happy | a turn has just finished with an answer | hops with its arms up for a few seconds |
+| sleeping | nothing has happened for 5 minutes | sits down, shuts its eyes and snores `z z Z` |
 
 It draws on two surfaces:
 
 - **Claude desktop app**: an animated SVG. The animation runs in the app itself, so it needs no redraws.
-- **Terminal**: a 4-row strip of half-block pixels, repainted about 7 times a second.
+- **Terminal**: a 6-row strip of half-block pixels, repainted about 7 times a second.
 
-The engine's `[-]` mark next to the strip collapses it. `/pet hide` and `/pet show` (or `/pet` to toggle) hide or show it, `/pet status` says where it is drawn, and that setting carries over to future sessions.
+The engine's `[-]` mark next to the strip collapses it. `/pet hide` and `/pet show` (or `/pet` to toggle) hide or show it, and that setting carries over to future sessions. `/pet demo` plays every mood for a few seconds each, `/pet mood <name>` pins one until `/pet mood auto`, and `/pet status` says where it is drawn.
 
 ## Install
 
@@ -76,7 +78,7 @@ claude --plugin-dir .      # run a session with the pet loaded from this folder
 ```
 
 - `hooks/register.tsx`: the hooks (moods, the `/pet` command, drawing the band)
-- `hooks/sprites.ts`: the 12×8 pixel art
+- `hooks/frames.ts`: the pixel art, traced from Claude's mascot, one character per pixel
 - `hooks/desktop.ts`: the SMIL-animated SVG for the desktop app
 - `hooks/terminal.ts`: the walker and the half-block Raster encoding for the terminal
 - `types/index.d.ts`: the session state contract (`mood`, `isHidden`)

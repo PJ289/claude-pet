@@ -1,20 +1,33 @@
-// The terminal pet: a Raster of half-block cells (two pixels per cell, one
-// above the other), repainted on a timer with $.ui.blit.
+// The terminal pet: a Raster of half-block cells (two art pixels per cell,
+// one above the other), repainted on a timer with $.ui.blit.
 
 import type { Mood } from '../types'
-import { HEIGHT, WIDTH, colorOf, sprite } from './sprites'
-import type { Pose } from './sprites'
+import {
+  COLUMNS,
+  ENGINEER_DOWN,
+  ENGINEER_UP,
+  HOP,
+  PULL,
+  ROCKET_A,
+  ROCKET_B,
+  ROWS as ART_ROWS,
+  SET,
+  TYPE_A,
+  TYPE_B,
+  colorOf,
+  front,
+} from './frames'
+import type { Grid } from './frames'
 
-export const ROWS = HEIGHT / 2
+export const ROWS = ART_ROWS / 2
 
 const DEFAULT = 0x01000000
 const UPPER = 0x2580 // ▀
 const LOWER = 0x2584 // ▄
 const FULL = 0x2588 // █
 const SPACE = 0x20
-const ACCENT = 0xd97757
+const ACCENT = 0xd06a4b
 
-const SPARK = ['.', '+', '*', '+']
 const SNORE = ['z', 'z', 'Z', 'Z', ' ', ' ']
 
 export type Walker = {
@@ -22,76 +35,97 @@ export type Walker = {
   dir: 1 | -1
   tick: number
   pause: number
-  blink: number
+  // The tick the current mood began at, for the routines that run a sequence.
+  since: number
+  mood: Mood
 }
 
 export function newWalker(columns: number): Walker {
   return {
-    x: Math.floor(Math.random() * Math.max(1, columns - WIDTH)),
+    x: Math.floor(Math.random() * Math.max(1, columns - COLUMNS)),
     dir: Math.random() < 0.5 ? 1 : -1,
     tick: 0,
     pause: 0,
-    blink: 0,
+    since: 0,
+    mood: 'idle',
   }
 }
 
-type Frame = { pose: Pose; glyph: string | null }
+type Frame = { grid: Grid; glyph: string | null }
+
+const STAND = front(0)
+// Ticks are 150ms: the mascot's routine, each entry a frame and how many
+// ticks it holds.
+const ROUTINE: [Grid, number][] = [
+  [STAND, 3],
+  [front('closed'), 1],
+  [STAND, 2],
+  [PULL, 3],
+  [SET, 3],
+  [HOP, 2],
+]
+const ROUTINE_TICKS = ROUTINE.reduce((sum, [, n]) => sum + n, 0)
+const TYPING_TICKS = 40
+
+function routineFrame(elapsed: number): Grid {
+  const at = elapsed % (ROUTINE_TICKS + TYPING_TICKS + 5) // then put away
+  let seen = 0
+  for (const [grid, n] of ROUTINE) {
+    if (at < seen + n) return grid
+    seen += n
+  }
+  if (at < seen + TYPING_TICKS) return at % 2 === 0 ? TYPE_A : TYPE_B
+
+  return at - seen - TYPING_TICKS < 3 ? SET : PULL
+}
 
 // Moves the walker one tick on and answers what to draw.
 export function step(walker: Walker, mood: Mood, columns: number): Frame {
   walker.tick += 1
-  const room = Math.max(0, columns - WIDTH - 2)
+  if (walker.mood !== mood) {
+    walker.mood = mood
+    walker.since = walker.tick
+  }
+  const elapsed = walker.tick - walker.since
+  const room = Math.max(0, columns - COLUMNS)
   walker.x = Math.min(walker.x, room)
 
-  if (mood === 'sleeping') {
-    const glyph = SNORE[Math.floor(walker.tick / 4) % SNORE.length] ?? ' '
+  switch (mood) {
+    case 'sleeping':
+      return { grid: front('sleepy', 'sit'), glyph: SNORE[Math.floor(walker.tick / 4) % SNORE.length] ?? ' ' }
+    case 'happy':
+      return { grid: elapsed % 2 === 0 ? HOP : STAND, glyph: '*' }
+    case 'working':
+      return { grid: routineFrame(elapsed), glyph: null }
+    case 'engineer':
+      return { grid: elapsed % 3 === 2 ? ENGINEER_DOWN : ENGINEER_UP, glyph: null }
+    case 'rocket':
+      walker.x = (walker.x + 2) % (room + 1)
 
-    return { pose: { eyes: 'sleepy', arms: 'out', legs: 'sit' }, glyph }
+      return { grid: walker.tick % 2 === 0 ? ROCKET_A : ROCKET_B, glyph: null }
+    case 'idle':
+      break
   }
-
-  if (mood === 'happy') {
-    const arms = Math.floor(walker.tick / 2) % 2 === 0 ? 'up' : 'out'
-
-    return { pose: { eyes: 0, arms, legs: 'stand' }, glyph: '*' }
-  }
-
-  const isWorking = mood === 'working'
-  const eyes = blinks(walker) ? 'closed' : undefined
 
   if (walker.pause > 0) {
     walker.pause -= 1
+    const glance = Math.floor(walker.pause / 8) % 3
 
-    return { pose: { eyes: eyes ?? 0, arms: 'out', legs: 'stand' }, glyph: null }
+    return {
+      grid: walker.pause % 23 === 0 ? front('closed') : front(glance === 1 ? -1 : glance === 2 ? 1 : 0),
+      glyph: null,
+    }
   }
 
-  const moves = isWorking || walker.tick % 2 === 0
-  if (moves) {
+  if (walker.tick % 2 === 0) {
     if (walker.x + walker.dir < 0 || walker.x + walker.dir > room) {
       walker.dir = walker.dir === 1 ? -1 : 1
     }
     walker.x += walker.dir
-    if (!isWorking && Math.random() < 0.04) {
-      walker.pause = 8 + Math.floor(Math.random() * 24)
-    }
+    if (Math.random() < 0.04) walker.pause = 16 + Math.floor(Math.random() * 30)
   }
 
-  const legs = Math.floor(walker.tick / (isWorking ? 1 : 2)) % 2 === 0 ? 'stepA' : 'stepB'
-  const glyph = isWorking ? (SPARK[walker.tick % SPARK.length] ?? null) : null
-
-  return { pose: { eyes: eyes ?? 0, arms: 'out', legs }, glyph }
-}
-
-function blinks(walker: Walker): boolean {
-  if (walker.blink > 0) {
-    walker.blink -= 1
-
-    return true
-  }
-  if (Math.random() < 0.03) {
-    walker.blink = 1
-  }
-
-  return false
+  return { grid: front(0, Math.floor(walker.tick / 2) % 2 === 0 ? 'stepA' : 'stepB'), glyph: null }
 }
 
 function rgb(hex: string): number {
@@ -102,23 +136,20 @@ function rgb(hex: string): number {
 // triplets [codePoint, foreground, background], base64.
 export function cells(walker: Walker, frame: Frame, columns: number): string {
   const words = new Uint32Array(columns * ROWS * 3)
-  const art = sprite(frame.pose)
 
   for (let row = 0; row < ROWS; row++) {
     for (let col = 0; col < columns; col++) {
       const at = (row * columns + col) * 3
       const local = col - walker.x
-      const top = colorOf(art[row * 2]?.[local])
-      const bottom = colorOf(art[row * 2 + 1]?.[local])
+      const top = colorOf(frame.grid[row * 2]?.[local])
+      const bottom = colorOf(frame.grid[row * 2 + 1]?.[local])
       words[at + 1] = DEFAULT
       words[at + 2] = DEFAULT
 
       if (top !== null && bottom !== null) {
         words[at] = top === bottom ? FULL : UPPER
         words[at + 1] = rgb(top)
-        if (top !== bottom) {
-          words[at + 2] = rgb(bottom)
-        }
+        if (top !== bottom) words[at + 2] = rgb(bottom)
       } else if (top !== null) {
         words[at] = UPPER
         words[at + 1] = rgb(top)
@@ -132,12 +163,10 @@ export function cells(walker: Walker, frame: Frame, columns: number): string {
   }
 
   if (frame.glyph !== null) {
-    const side = walker.x + WIDTH + 1 < columns ? walker.x + WIDTH : walker.x - 2
-    if (side >= 0) {
-      const at = side * 3
-      words[at] = frame.glyph.charCodeAt(0)
-      words[at + 1] = ACCENT
-    }
+    const side = walker.x + 19 < columns ? walker.x + 19 : walker.x + 4
+    const at = (2 * columns + side) * 3
+    words[at] = frame.glyph.charCodeAt(0)
+    words[at + 1] = ACCENT
   }
 
   return base64(words)

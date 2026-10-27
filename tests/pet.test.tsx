@@ -41,7 +41,7 @@ test('the pet draws on the terminal and on the desktop', async ($, on) => {
   const terminal = await $.ui.mount({ ...BAND, surface: 'terminal' })
   const raster = await terminal.find({ type: 'Raster', key: 'pet' })
   expect(raster?.props.columns).toBe(60)
-  expect(raster?.props.rows).toBe(4)
+  expect(raster?.props.rows).toBe(6)
   await terminal.unmount()
 
   const desktop = await $.ui.mount({ ...BAND, surface: 'desktop' })
