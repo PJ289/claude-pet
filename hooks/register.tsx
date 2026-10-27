@@ -21,7 +21,9 @@ const pet: {
   // The terminal band's Raster, repainted on a timer while it is mounted.
   band: { requestId: string; columns: number } | null
   walker: Walker | null
-} = { shown: 'idle', lastActivity: 0, calmDown: null, band: null, walker: null }
+  // The last time the band was asked to draw, for `/pet status`.
+  lastDraw: { surface: string; at: number } | null
+} = { shown: 'idle', lastActivity: 0, calmDown: null, band: null, walker: null, lastDraw: null }
 
 async function setMood($: EngineInterface, next: Mood) {
   pet.calmDown?.cancel()
@@ -79,7 +81,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'pet',
       description: 'Show or hide your pixel pet',
-      argumentHint: '[show|hide]',
+      argumentHint: '[show|hide|status]',
       immediate: true,
     })
 
@@ -93,6 +95,21 @@ export const register: Register = on => {
 
   on('command.run', { command: 'pet' }, async ($, e) => {
     const arg = e.args.trim().toLowerCase()
+    if (arg === 'status') {
+      const surfaces = await $.session.surfaces()
+      const drawn = pet.lastDraw
+      const ago = drawn === null ? 0 : Math.round(((await $.clock.now()) - drawn.at) / 1000)
+
+      return {
+        text: [
+          `Surfaces: ${surfaces.length === 0 ? 'none' : surfaces.join(', ')}`,
+          `Hidden: ${await read($, isHidden)}; mood: ${pet.shown}`,
+          drawn === null
+            ? 'The band above the prompt has not been asked to draw yet.'
+            : `Last drawn on ${drawn.surface}, ${ago}s ago.`,
+        ].join('\n'),
+      }
+    }
     const hide = arg === 'hide' ? true : arg === 'show' ? false : !(await read($, isHidden))
     await update($, isHidden, () => hide)
     await $.store.set('isHidden', hide)
@@ -128,6 +145,7 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    pet.lastDraw = { surface: e.surface, at: await $.clock.now() }
     if (e.props.hasSurvey || (await read($, isHidden))) {
       pet.band = null
 
