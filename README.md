@@ -39,7 +39,7 @@ The pet runs wherever Claude Code itself runs, so it has to be installed on that
 
 ### Local sessions (desktop app and terminal)
 
-In the desktop app, click **+** next to the prompt box, then **Plugins**, **Add marketplace** with `PJ289/claude-pet`, then **Add plugin** → `pixel-pet`.
+In the desktop app, click **+** next to the prompt box, then **Plugins**, **Add marketplace** with `PJ289/claude-pet`, then **Add plugin** → `pixel-pet`. A plugin saved in one desktop app is kept with the account, so it shows up in the app on another machine too.
 
 Or, from a terminal session:
 
@@ -75,10 +75,6 @@ A cloud session (claude.ai/code, or a cloud session opened from the desktop app)
   "enabledPlugins": { "pixel-pet@pixel-pet": true }
 }
 ```
-
-### Private repository
-
-While `PJ289/claude-pet` is private, installing needs a git credential for github.com on the machine (an SSH key, or `gh auth login` then `gh auth setup-git`). The install never prompts for one.
 
 ## Troubleshooting
 
