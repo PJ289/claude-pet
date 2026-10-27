@@ -1,6 +1,6 @@
 {
   "name": "pixel-pet",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A tiny pixel-art pet that wanders above the prompt and reacts to what Claude is doing",
   "author": { "name": "pj289" },
   "license": "MIT",

@@ -4,17 +4,19 @@ A tiny pixel-art pet for Claude Code. It lives in a thin strip just above the pr
 
 | Mood | When | What it does |
 | --- | --- | --- |
-| idle | nothing is running | wanders back and forth, stops to look around, blinks |
-| working | a turn is running | the mascot's own routine: pulls out a laptop, sets it down, hops, hammers the keys |
-| engineer | Claude edits or writes a file | hard hat and hammer on an anvil, sparks flying, for a few seconds |
-| rocket | a turn has run for over a minute | rides a rocket across the strip, flame flickering |
-| happy | a turn has just finished with an answer | hops with its arms up for a few seconds |
-| sleeping | nothing has happened for 5 minutes | sits down, shuts its eyes and snores `z z Z` |
+| idle | nothing is running | stands on its spot, breathing, blinking, glancing at the prompt |
+| working | a turn is running | the mascot's own routine: pulls out a laptop, hops, and types, a small terminal window filling up above the laptop |
+| intense | a turn has run for over a minute | the same, frantic: faster keys, a sweat drop, the terminal racing |
+| happy | a turn has just finished with an answer | a real jump, crouch, stretch and land, with confetti |
+| dizzy | a turn was interrupted or failed | shakes its head |
+| sleeping | nothing has happened for 5 minutes | sits down, shuts its eyes and snores |
+
+It stands at the left end of the strip, on a floor line, with a shadow under it.
 
 It draws on two surfaces:
 
 - **Claude desktop app**: an animated SVG. The animation runs in the app itself, so it needs no redraws.
-- **Terminal**: a 6-row strip of half-block pixels, repainted about 7 times a second.
+- **Terminal**: a 6-row strip of half-block pixels (the same frames, no shadow), repainted about 7 times a second.
 
 The engine's `[-]` mark next to the strip collapses it. `/pet hide` and `/pet show` (or `/pet` to toggle) hide or show it, and that setting carries over to future sessions. `/pet demo` plays every mood for a few seconds each, `/pet mood <name>` pins one until `/pet mood auto`, and `/pet status` says where it is drawn.
 

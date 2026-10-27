@@ -10,15 +10,14 @@ import type { Walker } from './terminal'
 const mood = atom({ plugin: 'pixel-pet', key: 'mood' } as const, 'idle')
 const isHidden = atom({ plugin: 'pixel-pet', key: 'isHidden' } as const, false)
 
-const MOODS: Mood[] = ['idle', 'working', 'engineer', 'rocket', 'happy', 'sleeping']
-const EDITING_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+const MOODS: Mood[] = ['idle', 'working', 'intense', 'happy', 'dizzy', 'sleeping']
 
 const TICK_MS = 150
-const HAPPY_MS = 4000
-const HAMMER_MS = 3500
-const ROCKET_AFTER_MS = 60 * 1000
+const HAPPY_MS = 4200
+const DIZZY_MS = 2400
+const INTENSE_AFTER_MS = 60 * 1000
 const SLEEP_AFTER_MS = 5 * 60 * 1000
-const DEMO_STEP_MS = 7000
+const DEMO_STEP_MS = 8000
 
 type Timer = { cancel: () => void }
 
@@ -26,10 +25,9 @@ type Timer = { cancel: () => void }
 const pet: {
   shown: Mood
   lastActivity: number
-  workStart: number
   // `/pet mood` holds a mood against the automatic changes; `/pet demo` too.
   isPinned: boolean
-  timers: { calm?: Timer; hammer?: Timer; rocket?: Timer; demo?: Timer }
+  timers: { calm?: Timer; intense?: Timer; demo?: Timer }
   // The terminal band's Raster, repainted on a timer while it is mounted.
   band: { requestId: string; columns: number } | null
   walker: Walker | null
@@ -38,7 +36,6 @@ const pet: {
 } = {
   shown: 'idle',
   lastActivity: 0,
-  workStart: 0,
   isPinned: false,
   timers: {},
   band: null,
@@ -63,42 +60,27 @@ async function settle($: EngineInterface, next: Mood) {
   if (!pet.isPinned) await setMood($, next)
 }
 
-// Working: the mascot's typing routine, the rocket once it has gone on a while.
-async function workingMood($: EngineInterface): Promise<Mood> {
-  return (await $.clock.now()) - pet.workStart > ROCKET_AFTER_MS ? 'rocket' : 'working'
-}
-
+// A turn is running: out comes the laptop, and after a minute of it the
+// typing gets frantic.
 async function wake($: EngineInterface) {
   pet.lastActivity = await $.clock.now()
-  if (pet.shown === 'working' || pet.shown === 'rocket' || pet.shown === 'engineer') return
-  pet.workStart = pet.lastActivity
-  cancel('calm', 'rocket')
-  pet.timers.rocket = $.clock.after(ROCKET_AFTER_MS, () => {
-    if (pet.shown === 'working') void settle($, 'rocket')
+  if (pet.shown === 'working' || pet.shown === 'intense') return
+  cancel('calm', 'intense')
+  pet.timers.intense = $.clock.after(INTENSE_AFTER_MS, () => {
+    if (pet.shown === 'working') void settle($, 'intense')
   })
   await settle($, 'working')
 }
 
-async function hammer($: EngineInterface) {
-  cancel('hammer')
-  pet.timers.hammer = $.clock.after(HAMMER_MS, async () => {
-    if (pet.shown === 'engineer') await settle($, await workingMood($))
-  })
-  await settle($, 'engineer')
-}
-
+// The turn ended: a jump for an answer, a shake of the head for a cut.
 async function finish($: EngineInterface, isAnswered: boolean) {
   pet.lastActivity = await $.clock.now()
-  cancel('calm', 'hammer', 'rocket')
-  if (!isAnswered) {
-    await settle($, 'idle')
-
-    return
-  }
-  pet.timers.calm = $.clock.after(HAPPY_MS, () => {
-    if (pet.shown === 'happy') void settle($, 'idle')
+  cancel('calm', 'intense')
+  const reaction: Mood = isAnswered ? 'happy' : 'dizzy'
+  pet.timers.calm = $.clock.after(isAnswered ? HAPPY_MS : DIZZY_MS, () => {
+    if (pet.shown === reaction) void settle($, 'idle')
   })
-  await settle($, 'happy')
+  await settle($, reaction)
 }
 
 async function dozeOff($: EngineInterface) {
@@ -122,11 +104,10 @@ function demo($: EngineInterface, index: number) {
 async function paint($: EngineInterface) {
   const { band, walker } = pet
   if (band === null || walker === null) return
-  const frame = step(walker, pet.shown, band.columns)
   const painted = await $.ui.blit({
     requestId: band.requestId,
     key: 'pet',
-    cells: cells(walker, frame, band.columns),
+    cells: cells(step(walker, pet.shown), band.columns),
   })
   if ('deny' in painted) pet.band = null
 }
@@ -145,7 +126,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'pet',
       description: 'Your pixel pet: show, hide, demo, or pin a mood',
-      argumentHint: '[show|hide|status|demo|mood <idle|working|engineer|rocket|happy|sleeping|auto>]',
+      argumentHint: '[show|hide|status|demo|mood <idle|working|intense|happy|dizzy|sleeping|auto>]',
       immediate: true,
     })
 
@@ -216,7 +197,6 @@ export const register: Register = on => {
 
   on('tool.call', async ($, e, next) => {
     await wake($)
-    if (EDITING_TOOLS.has(String(e.tool))) await hammer($)
 
     return next(e)
   })
@@ -243,17 +223,10 @@ export const register: Register = on => {
     if (e.surface === 'terminal') {
       const { Raster } = $.ui.resolve(e)
       const columns = Math.max(COLUMNS, Math.min(512, e.props.bodyColumns))
-      const walker = (pet.walker ??= newWalker(columns))
+      const walker = (pet.walker ??= newWalker())
       pet.band = { requestId: e.requestId, columns }
 
-      return (
-        <Raster
-          key="pet"
-          columns={columns}
-          rows={ROWS}
-          cells={cells(walker, step(walker, current, columns), columns)}
-        />
-      )
+      return <Raster key="pet" columns={columns} rows={ROWS} cells={cells(step(walker, current), columns)} />
     }
 
     if (e.surface === 'desktop') {

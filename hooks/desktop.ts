@@ -1,36 +1,28 @@
-// The desktop pet: one SVG whose SMIL animations flip through the frames,
-// walk, hop and fly it, so the surface animates it with no redraws. A new
-// mood draws a new SVG.
+// The desktop pet: one SVG whose SMIL animations breathe, blink, type and
+// jump it, so the surface animates it with no redraws. A new mood draws a
+// new SVG.
+//
+// The pet has a place: a stage at the left end of the strip, on a floor
+// line, with a shadow under it. Every mood plays on that same stage.
 
 import type { Mood } from '../types'
-import {
-  COLUMNS,
-  ENGINEER_DOWN,
-  ENGINEER_UP,
-  HOP,
-  PULL,
-  ROCKET_A,
-  ROCKET_B,
-  ROWS,
-  SET,
-  TYPE_A,
-  TYPE_B,
-  colorOf,
-  front,
-} from './frames'
+import { COLUMNS, CROUCH, PULL, ROWS, SET, STRETCH, TYPE_A, TYPE_B, colorOf, front } from './frames'
 import type { Grid } from './frames'
 
 // CSS pixels per art pixel.
 export const SCALE = 4
 const FRAME_W = COLUMNS * SCALE
 const FRAME_H = ROWS * SCALE
-// Headroom above the frame for a hop or a snore; the pet stands on the
-// bottom edge, right on top of the prompt box.
-export const STRIP_H = FRAME_H + 12
+export const STRIP_H = FRAME_H + 4
 const TOP = STRIP_H - FRAME_H
+const STAGE_X = 8
+const FLOOR_Y = STRIP_H - 1
+
 const BODY = '#D06A4B'
+const CONFETTI = ['#D06A4B', '#F2B49B', '#CFE8FF', '#B55C41', '#E8C547', '#D06A4B', '#F2B49B', '#CFE8FF']
 
 const fmt = (n: number) => String(Math.round(n * 1000) / 1000)
+const px = (n: number) => n * SCALE
 
 function rects(grid: Grid): string {
   let out = ''
@@ -41,7 +33,7 @@ function rects(grid: Grid): string {
       let end = x + 1
       while (end < row.length && colorOf(row[end]) === color) end += 1
       if (color !== null) {
-        out += `<rect x="${x * SCALE}" y="${y * SCALE}" width="${(end - x) * SCALE}" height="${SCALE}" fill="${color}"/>`
+        out += `<rect x="${px(x)}" y="${px(y)}" width="${px(end - x)}" height="${SCALE}" fill="${color}"/>`
       }
       x = end
     }
@@ -50,15 +42,19 @@ function rects(grid: Grid): string {
   return out
 }
 
-function discrete(values: number[], keyTimes: number[], dur: number): string {
-  return `<animate attributeName="opacity" values="${values.join(';')}" keyTimes="${keyTimes.map(fmt).join(';')}" dur="${fmt(dur)}s" calcMode="discrete" repeatCount="indefinite"/>`
+type Timing = { begin?: number; repeat?: number }
+
+function discrete(values: number[], keyTimes: number[], dur: number, timing: Timing = {}): string {
+  const repeat = timing.repeat === undefined ? 'indefinite' : String(timing.repeat)
+  const freeze = timing.repeat === undefined ? '' : ' fill="freeze"'
+
+  return `<animate attributeName="opacity" values="${values.join(';')}" keyTimes="${keyTimes.map(fmt).join(';')}" dur="${fmt(dur)}s" begin="${fmt(timing.begin ?? 0)}s" calcMode="discrete" repeatCount="${repeat}"${freeze}/>`
 }
 
-// One step of a clip: a frame, or a nested clip that cycles while shown.
-type Step = { ms: number; grid?: Grid; cycle?: Step[] }
+type Step = { ms: number; grid: Grid }
 
-// Shows the clip's steps one after another, looping.
-function clip(steps: Step[]): string {
+// Shows the clip's steps one after another; looping unless `repeat` says.
+function clip(steps: Step[], timing: Timing = {}): string {
   const total = steps.reduce((sum, step) => sum + step.ms, 0)
   const keyTimes = [0]
   steps.forEach(step => keyTimes.push((keyTimes[keyTimes.length - 1] ?? 0) + step.ms / total))
@@ -66,167 +62,206 @@ function clip(steps: Step[]): string {
 
   return steps
     .map((step, i) => {
-      const body = step.grid !== undefined ? rects(step.grid) : clip(step.cycle ?? [])
       const values = steps.map((_, j) => (i === j ? 1 : 0))
 
-      return `<g opacity="0">${body}${discrete(values, keyTimes, total / 1000)}</g>`
+      return `<g opacity="0">${rects(step.grid)}${discrete(values, keyTimes, total / 1000, timing)}</g>`
     })
     .join('')
 }
 
+const EASE = '0.4 0 0.6 1'
+
+// A slow rise and fall of one pixel: the pet breathes.
+function breathing(seconds: number): string {
+  return `<animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" keyTimes="0;0.5;1" dur="${fmt(seconds)}s" calcMode="spline" keySplines="${EASE};${EASE}" repeatCount="indefinite"/>`
+}
+
+function floor(width: number): string {
+  return `<rect x="0" y="${FLOOR_Y}" width="${width}" height="1" fill="#9A9A96" opacity="0.4"/>`
+}
+
+// The shadow under the pet, centred on art column `cx`.
+function shadow(cx: number, rx: number, extra = ''): string {
+  return `<ellipse cx="${px(cx) + STAGE_X}" cy="${FLOOR_Y - 1}" rx="${px(rx)}" ry="2" fill="#000" opacity="0.38">${extra}</ellipse>`
+}
+
 const STAND = front(0)
-const WALKING: Step[] = [
-  { grid: front(0, 'stepA'), ms: 200 },
-  { grid: front(0, 'stepB'), ms: 200 },
-]
-const RESTING: Step[] = [
-  { grid: STAND, ms: 1600 },
-  { grid: front('closed'), ms: 120 },
-  { grid: STAND, ms: 900 },
-  { grid: front(-1), ms: 900 },
-  { grid: STAND, ms: 400 },
-  { grid: front(1), ms: 900 },
-  { grid: STAND, ms: 700 },
-  { grid: front('closed'), ms: 120 },
-]
-const TYPING: Step[] = [
-  { grid: TYPE_A, ms: 110 },
-  { grid: TYPE_B, ms: 110 },
-]
 
-type Segment = { x: number; isMoving: boolean }
+function stage(body: string): string {
+  return `<g transform="translate(${STAGE_X} ${TOP})">${body}</g>`
+}
 
-// A looping walk over the strip: stretches of walking between random spots,
-// with rests between them.
-function idle(width: number): string {
-  const room = Math.max(1, width - FRAME_W)
-  const start = Math.random() * room
-  const points: Segment[] = []
-  const times: number[] = [0]
-  let x = start
-  let t = 0
-
-  const go = (target: number) => {
-    points.push({ x, isMoving: true })
-    t += Math.max(0.3, Math.abs(target - x) / 36)
-    times.push(t)
-    x = target
-    points.push({ x, isMoving: false })
-    t += 2 + Math.random() * 4
-    times.push(t)
-  }
-  for (let i = 0; i < 4; i++) {
-    let target = Math.random() * room
-    if (Math.abs(target - x) < FRAME_W / 2) target = x > room / 2 ? x - room / 2 : x + room / 2
-    go(target)
-  }
-  go(start)
-  points.push({ x, isMoving: false })
-
-  const keyTimes = times.map(time => time / t)
-  const moves = `<animateTransform attributeName="transform" type="translate" values="${points.map(p => `${fmt(p.x)} ${TOP}`).join(';')}" keyTimes="${keyTimes.map(fmt).join(';')}" dur="${fmt(t)}s" repeatCount="indefinite"/>`
-  const layer = (body: string, show: (p: Segment) => boolean) =>
-    `<g opacity="0">${body}${discrete(points.map(p => (show(p) ? 1 : 0)), keyTimes, t)}</g>`
-
+// Standing, breathing, blinking now and then, and glancing at the prompt
+// as if waiting for the next message.
+function idle(): string {
   return (
-    `<g transform="translate(${fmt(start)} ${TOP})">${moves}` +
-    layer(clip(WALKING), p => p.isMoving) +
-    layer(clip(RESTING), p => !p.isMoving) +
-    `</g>`
+    shadow(12, 5.5) +
+    stage(
+      `<g>${breathing(2.6)}` +
+        clip([
+          { grid: STAND, ms: 3100 },
+          { grid: front('closed'), ms: 120 },
+          { grid: STAND, ms: 2300 },
+          { grid: front('closed'), ms: 120 },
+          { grid: STAND, ms: 900 },
+          { grid: front(1), ms: 1300 },
+          { grid: STAND, ms: 2600 },
+          { grid: front('closed'), ms: 110 },
+          { grid: STAND, ms: 600 },
+          { grid: front(-1), ms: 900 },
+          { grid: STAND, ms: 1400 },
+        ]) +
+        `</g>`,
+    )
   )
 }
 
-// The mascot's own routine: a blink, out comes the laptop, a hop, and a
-// long bout of typing before it is put away again.
-function working(width: number): string {
-  const x = Math.max(0, Math.min(width - FRAME_W, width * 0.25))
+// A small terminal window above the laptop, lines of output typed in and
+// cleared, over and over. `period` is one fill-and-clear, in seconds.
+function terminalBubble(period: number): string {
+  const lines: [number, string][][] = [
+    [[5, 'c'], [3, 'L'], [6, 'c']],
+    [[4, 'c'], [6, 'c'], [2, 'L']],
+    [[6, 'L'], [2, 'c'], [5, 'c']],
+  ]
+  const total = period * lines.length
+  let out = `<rect x="0" y="0" width="${px(10)}" height="${px(7)}" rx="3" fill="#161615" opacity="0.9"/>`
+  lines.forEach((set, k) => {
+    set.forEach(([length, color], i) => {
+      const on = (k * period + 0.25 + i * (period * 0.22)) / total
+      const off = (k * period + period * 0.9) / total
+
+      return (out +=
+        `<rect x="${px(1)}" y="${px(1 + i * 2)}" width="${px(length)}" height="${SCALE}" fill="${colorOf(color)}" opacity="0">` +
+        discrete([0, 1, 0], [0, on, off], total) +
+        `</rect>`)
+    })
+  })
+
+  // A cursor blinks in the corner, so an empty window still reads as live.
+  out += `<rect x="${px(8)}" y="${px(5)}" width="${SCALE}" height="${SCALE}" fill="${colorOf('L')}">${discrete([1, 0], [0, 0.5], 1)}</rect>`
+
+  return `<g>${out}</g>`
+}
+
+// The mascot's own routine: a blink, out comes the laptop, a hop, and then
+// it types for as long as the turn runs. `isIntense` once it has gone on a
+// while: faster keys, a sweat drop, the terminal racing.
+function working(isIntense: boolean): string {
+  const intro: Step[] = [
+    { grid: STAND, ms: 350 },
+    { grid: front('closed'), ms: 120 },
+    { grid: STAND, ms: 250 },
+    { grid: PULL, ms: 420 },
+    { grid: SET, ms: 420 },
+    { grid: STRETCH, ms: 220 },
+    { grid: CROUCH, ms: 90 },
+  ]
+  const introSeconds = intro.reduce((sum, step) => sum + step.ms, 0) / 1000
+  const keyMs = isIntense ? 70 : 110
+  const sweat = isIntense
+    ? `<rect x="${px(15)}" y="${px(7)}" width="${SCALE}" height="${px(2)}" fill="${colorOf('B')}">` +
+      `<animateTransform attributeName="transform" type="translate" values="0 0;0 8" dur="1.1s" repeatCount="indefinite"/>` +
+      `<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.7;1" dur="1.1s" repeatCount="indefinite"/></rect>`
+    : ''
+  const jitter = isIntense
+    ? `<animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" dur="0.28s" repeatCount="indefinite"/>`
+    : ''
 
   return (
-    `<g transform="translate(${fmt(x)} ${TOP})">` +
-    clip([
-      { grid: STAND, ms: 500 },
-      { grid: front('closed'), ms: 120 },
-      { grid: STAND, ms: 300 },
-      { grid: PULL, ms: 450 },
-      { grid: SET, ms: 450 },
-      { grid: HOP, ms: 300 },
-      { cycle: TYPING, ms: 6000 },
-      { grid: SET, ms: 400 },
-      { grid: PULL, ms: 400 },
-    ]) +
-    `</g>`
+    shadow(
+      12,
+      5.5,
+      `<animate attributeName="cx" values="${px(12) + STAGE_X};${px(8) + STAGE_X}" dur="0.01s" begin="${fmt(introSeconds)}s" fill="freeze"/>` +
+        `<animate attributeName="rx" values="${px(5.5)};${px(7.5)}" dur="0.01s" begin="${fmt(introSeconds)}s" fill="freeze"/>`,
+    ) +
+    stage(
+      `<g>${clip(intro, { repeat: 1 })}<set attributeName="opacity" to="0" begin="${fmt(introSeconds)}s"/></g>` +
+        `<g opacity="0"><set attributeName="opacity" to="1" begin="${fmt(introSeconds)}s"/>` +
+        `<g>${jitter}` +
+        clip([
+          { grid: TYPE_A, ms: keyMs },
+          { grid: TYPE_B, ms: keyMs },
+        ]) +
+        `</g>${sweat}` +
+        `<g opacity="0"><set attributeName="opacity" to="1" begin="${fmt(introSeconds + 0.4)}s"/>${terminalBubble(isIntense ? 1.3 : 2.6)}</g>` +
+        `</g>`,
+    )
   )
 }
 
-// Flies across the strip, over and over, flame flickering.
-function rocket(width: number): string {
+// The answer landed: a real jump, crouch, stretch, land, with confetti.
+function happy(): string {
+  const loop = 1.4
+  const keyTimes = '0;0.086;0.33;0.514;1'
+  const jump = `<animateTransform attributeName="transform" type="translate" values="0 0;0 0;0 -14;0 0;0 0" keyTimes="${keyTimes}" dur="${loop}s" calcMode="spline" keySplines="0 0 1 1;0.2 0.8 0.4 1;0.6 0 0.8 0.2;0 0 1 1" repeatCount="indefinite"/>`
+  const confetti = CONFETTI.map((color, i) => {
+    const dx = (i - 3.5) * 9 + (i % 2 ? 3 : -3)
+    const peak = -(10 + (i % 3) * 4)
+    const fall = 26
+
+    return (
+      `<rect x="${px(12) - 2}" y="${px(6)}" width="4" height="4" fill="${color}" opacity="0">` +
+      `<animateTransform attributeName="transform" type="translate" values="0 0;0 0;${fmt(dx * 0.55)} ${peak};${fmt(dx)} ${fall};${fmt(dx)} ${fall}" keyTimes="0;0.25;0.45;0.8;1" dur="${loop}s" calcMode="spline" keySplines="0 0 1 1;0.2 0.8 0.5 1;0.5 0 0.9 0.4;0 0 1 1" repeatCount="indefinite"/>` +
+      `<animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.25;0.27;0.75;0.85;1" dur="${loop}s" repeatCount="indefinite"/></rect>`
+    )
+  }).join('')
+
   return (
-    `<g transform="translate(0 ${TOP})">` +
-    `<animateTransform attributeName="transform" type="translate" values="${-FRAME_W} ${TOP};${width} ${TOP}" dur="${fmt(Math.max(2, (width + FRAME_W) / 90))}s" repeatCount="indefinite"/>` +
-    `<g><animateTransform attributeName="transform" type="translate" values="0 0;0 -2;0 0;0 1;0 0" dur="0.35s" repeatCount="indefinite"/>` +
-    clip([
-      { grid: ROCKET_A, ms: 80 },
-      { grid: ROCKET_B, ms: 80 },
-    ]) +
-    `</g></g>`
+    shadow(12, 5.5, `<animate attributeName="rx" values="${px(5.5)};${px(5.5)};${px(3.5)};${px(5.5)};${px(5.5)}" keyTimes="${keyTimes}" dur="${loop}s" repeatCount="indefinite"/>`) +
+    stage(
+      `<g>${jump}` +
+        clip([
+          { grid: CROUCH, ms: 120 },
+          { grid: STRETCH, ms: 600 },
+          { grid: CROUCH, ms: 100 },
+          { grid: STAND, ms: 580 },
+        ]) +
+        `</g>${confetti}`,
+    )
   )
 }
 
-function engineer(width: number): string {
-  const x = Math.max(0, Math.min(width - FRAME_W, width * 0.25))
-
+// The turn was cut short: a shake of the head.
+function dizzy(): string {
   return (
-    `<g transform="translate(${fmt(x)} ${TOP})">` +
-    clip([
-      { grid: ENGINEER_UP, ms: 320 },
-      { grid: ENGINEER_DOWN, ms: 180 },
-    ]) +
-    `</g>`
+    shadow(12, 5.5) +
+    stage(
+      `<g><animateTransform attributeName="transform" type="translate" values="0 0;-2 0;2 0;-2 0;2 0;0 0;0 0" keyTimes="0;0.1;0.2;0.3;0.4;0.5;1" dur="1.2s" repeatCount="indefinite"/>` +
+        clip([
+          { grid: front('closed'), ms: 600 },
+          { grid: STAND, ms: 600 },
+        ]) +
+        `</g>`,
+    )
   )
 }
 
-function happy(width: number): string {
-  const x = Math.max(0, (width - FRAME_W) / 2)
-
-  return (
-    `<g transform="translate(${fmt(x)} ${TOP})"><g>` +
-    `<animateTransform attributeName="transform" type="translate" values="0 0;0 -8;0 0" keyTimes="0;0.4;1" dur="0.5s" repeatCount="indefinite"/>` +
-    clip([
-      { grid: HOP, ms: 250 },
-      { grid: STAND, ms: 250 },
-    ]) +
-    `</g>` +
-    `<text x="${4 * SCALE}" y="${5 * SCALE}" font-size="14" font-weight="bold" fill="${BODY}">✻</text>` +
-    `<text x="${19 * SCALE}" y="${5 * SCALE}" font-size="14" font-weight="bold" fill="${BODY}">✻</text>` +
-    `</g>`
-  )
-}
-
-function sleeping(width: number): string {
-  const x = Math.max(0, Math.min(width - FRAME_W, width * 0.3))
-  const snore = [0, 1, 2]
+function sleeping(): string {
+  const snore = [0, 1]
     .map(
       i =>
-        `<text x="${(18 + i * 2) * SCALE}" y="${7 * SCALE}" font-size="${9 + i * 3}" font-weight="bold" fill="${BODY}" opacity="0">z` +
-        `<animate attributeName="y" values="${7 * SCALE};${-TOP + 10}" dur="3s" begin="${i}s" repeatCount="indefinite"/>` +
-        `<animate attributeName="opacity" values="0;1;0" dur="3s" begin="${i}s" repeatCount="indefinite"/></text>`,
+        `<text x="${px(18 + i * 2)}" y="${px(8)}" font-size="${10 + i * 3}" font-weight="bold" fill="${BODY}" opacity="0">z` +
+        `<animate attributeName="y" values="${px(8)};${px(1)}" dur="3.2s" begin="${i * 1.6}s" repeatCount="indefinite"/>` +
+        `<animate attributeName="opacity" values="0;0.9;0" dur="3.2s" begin="${i * 1.6}s" repeatCount="indefinite"/></text>`,
     )
     .join('')
 
-  return (
-    `<g transform="translate(${fmt(x)} ${TOP})">` +
-    `<g>${rects(front('sleepy', 'sit'))}` +
-    `<animateTransform attributeName="transform" type="translate" values="0 0;0 1;0 0" dur="3s" repeatCount="indefinite"/></g>` +
-    snore +
-    `</g>`
-  )
+  return shadow(12, 5.5) + stage(`<g>${breathing(3.6)}${rects(front('sleepy', 'sit'))}</g>${snore}`)
 }
 
-const SCENES: Record<Mood, (width: number) => string> = { idle, working, rocket, engineer, happy, sleeping }
+const SCENES: Record<Mood, () => string> = {
+  idle,
+  working: () => working(false),
+  intense: () => working(true),
+  happy,
+  dizzy,
+  sleeping,
+}
 
 export function svg(mood: Mood, width: number): string {
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${STRIP_H}" viewBox="0 0 ${width} ${STRIP_H}" shape-rendering="crispEdges" style="display:block">` +
-    `<g font-family="ui-monospace, Menlo, monospace">${SCENES[mood](width)}</g></svg>`
+    `<g font-family="ui-monospace, Menlo, monospace">${floor(width)}${SCENES[mood]()}</g></svg>`
   )
 }

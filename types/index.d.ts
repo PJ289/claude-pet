@@ -1,4 +1,4 @@
-export type Mood = 'idle' | 'working' | 'rocket' | 'engineer' | 'happy' | 'sleeping'
+export type Mood = 'idle' | 'working' | 'intense' | 'happy' | 'dizzy' | 'sleeping'
 
 declare module 'claude-code' {
   interface PluginState {
