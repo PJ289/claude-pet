@@ -119,17 +119,19 @@ async function dozeOff($: EngineInterface) {
   if (pet.shown === 'idle' && now - pet.lastActivity > SLEEP_AFTER_MS) await settle($, 'sleeping')
 }
 
-// Reads the context window's fill, and the five-hour window's, off the
+// Reads the context window's fill, and the rate-limit windows', off the
 // session and keeps them for the meter; the sites drawing it redraw on
 // their own.
 async function refreshContext($: EngineInterface) {
   const usage = await $.session.usage()
   const limit = usage.rateLimits.find(window => window.kind === 'five_hour')
+  const week = usage.rateLimits.find(window => window.kind === 'seven_day')
   const next: ContextUsage = {
     percent: usage.context.percent ?? 0,
     tokens: usage.context.tokens ?? 0,
     window: usage.context.window,
     ...(limit === undefined ? {} : { limitPercent: limit.percentUsed }),
+    ...(week === undefined ? {} : { weekPercent: week.percentUsed }),
   }
   await update($, context, () => next)
 }
@@ -233,7 +235,7 @@ export const register: Register = (on, options) => {
         text: [
           `Surfaces: ${surfaces.length === 0 ? 'none' : surfaces.join(', ')}`,
           `Hidden: ${await read($, isHidden)}; mood: ${pet.shown}${pet.isPinned ? ' (pinned)' : ''}; agents: ${await read($, agents)}`,
-          `Context: ${usage?.percent ?? '?'}%${usage?.limitPercent === undefined ? '' : `; 5h window: ${usage.limitPercent}%`}`,
+          `Context: ${usage?.percent ?? '?'}%${usage?.limitPercent === undefined ? '' : `; 5h window: ${usage.limitPercent}%`}${usage?.weekPercent === undefined ? '' : `; 7d window: ${usage.weekPercent}%`}`,
           drawn === null
             ? 'The band above the prompt has not been asked to draw yet.'
             : `Last drawn on ${drawn.surface}, ${ago}s ago.`,

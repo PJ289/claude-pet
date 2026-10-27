@@ -203,12 +203,13 @@ const HOP = (on: string) =>
 // for the click that starts it.
 type Reaction = { id: string; stage: string; frames?: Step[]; hideSeconds?: number; popup?: string }
 
-// Everything the pointer does on the pet, all inside the drawing, where
-// SMIL and CSS hear it and nothing reaches the hooks. A click plays one
-// of five reactions, by luck: the hit areas take turns being the visible
-// one, a few times a second. Each is split in a left and a right half, so
-// the pet's eyes can follow the pointer while it stands facing us.
-function clickable(body: string, hasEyesToTurn: boolean): string {
+// A click on the pet, all inside the drawing, where SMIL hears it and
+// nothing reaches the hooks. Which of the five reactions plays is luck:
+// the hit area is a band of stripes, two per reaction, sliding across the
+// stage a few times a second, so the click lands on whichever stripe is
+// passing. A click on a stripe bubbles to its reaction's group, whose id
+// the animations listen for.
+function clickable(body: string): string {
   const reactions: Reaction[] = [
     {
       id: 'heart',
@@ -246,7 +247,7 @@ function clickable(body: string, hasEyesToTurn: boolean): string {
     },
     {
       id: 'wave',
-      stage: '',
+      stage: HOP('ON'),
       hideSeconds: 0.6,
       frames: [
         { grid: STRETCH, ms: 150 },
@@ -256,52 +257,34 @@ function clickable(body: string, hasEyesToTurn: boolean): string {
       ],
     },
   ]
-  // A reaction's `begin` names both halves of its area.
-  const both = (id: string) => `${id}L.click; ${id}R.click`
-  const on = (r: Reaction, markup: string) => markup.split('begin="ON"').join(`begin="${both(r.id)}"`)
+  const on = (r: Reaction, markup: string) => markup.split('begin="ON"').join(`begin="${r.id}.click"`)
   const hides = reactions
     .filter(r => r.hideSeconds !== undefined)
-    .map(r => `<set attributeName="opacity" to="0" begin="${both(r.id)}" dur="${fmt(r.hideSeconds ?? 0)}s"/>`)
+    .map(r => `<set attributeName="opacity" to="0" begin="${r.id}.click" dur="${fmt(r.hideSeconds ?? 0)}s"/>`)
     .join('')
   const frames = reactions
     .filter(r => r.frames !== undefined)
-    .map(r => stage(clip(r.frames ?? [], { begin: both(r.id), repeat: 1, isHeld: false })))
+    .map(r => stage(clip(r.frames ?? [], { begin: `${r.id}.click`, repeat: 1, isHeld: false })))
     .join('')
   const stages = reactions.map(r => on(r, r.stage)).join('')
   const popups = reactions.map(r => on(r, r.popup ?? '')).join('')
-  const period = 0.1 * reactions.length
   const hitW = FRAME_W + 12
-  const hits = reactions
-    .map((r, i) => {
-      const values = reactions.map((_, j) => (j === i ? 'visible' : 'hidden')).join(';')
-      const keyTimes = reactions.map((_, j) => fmt(j / reactions.length)).join(';')
-      const cycle = `<animate attributeName="visibility" values="${values}" keyTimes="${keyTimes}" dur="${fmt(period)}s" calcMode="discrete" repeatCount="indefinite"/>`
-
-      return (
-        `<rect id="${r.id}L" x="${STAGE_X - 6}" y="0" width="${hitW / 2}" height="${STRIP_H}" fill="#fff" fill-opacity="0" style="cursor:pointer">${cycle}</rect>` +
-        `<rect id="${r.id}R" x="${STAGE_X - 6 + hitW / 2}" y="0" width="${hitW / 2}" height="${STRIP_H}" fill="#fff" fill-opacity="0" style="cursor:pointer">${cycle}</rect>`
-      )
-    })
+  const stripeW = hitW / reactions.length
+  const stripes = reactions
+    .map(
+      (r, i) =>
+        `<g id="${r.id}" style="cursor:pointer">` +
+        `<rect x="${fmt(i * stripeW)}" y="0" width="${fmt(stripeW)}" height="${STRIP_H}" fill="#fff" fill-opacity="0"/>` +
+        `<rect x="${fmt(hitW + i * stripeW)}" y="0" width="${fmt(stripeW)}" height="${STRIP_H}" fill="#fff" fill-opacity="0"/>` +
+        `</g>`,
+    )
     .join('')
-  // The eyes that follow the pointer: an overlay over the eye row of the
-  // standing pose, one glance per side, shown by CSS while its half is hovered.
-  const eyes = hasEyesToTurn
-    ? `<style>.eyes{opacity:0;pointer-events:none}${reactions.map(r => `#${r.id}L:hover~.eyesL`).join(',')}{opacity:1}${reactions.map(r => `#${r.id}R:hover~.eyesR`).join(',')}{opacity:1}</style>` +
-      ([-1, 1] as const)
-        .map(dir => {
-          const eyeRow = front(dir)[ROWS - 7] ?? ''
-          const blank = '.'.repeat(COLUMNS)
+  const hits =
+    `<g transform="translate(${STAGE_X - 6} 0)">` +
+    `<animateTransform attributeName="transform" type="translate" values="0 0;${-hitW} 0" dur="0.5s" repeatCount="indefinite" additive="sum"/>` +
+    `${stripes}</g>`
 
-          // A body-coloured band a pixel taller than the row, since the pet
-          // breathes a pixel up and down under it.
-          const band = `<rect x="${px(2)}" y="${px(7) - 1}" width="${px(8)}" height="${SCALE + 2}" fill="${BODY}"/>`
-
-          return `<g class="eyes eyes${dir === -1 ? 'L' : 'R'}" transform="translate(${STAGE_X} ${TOP})">${band}${rects([...Array<string>(ROWS - 7).fill(blank), eyeRow])}</g>`
-        })
-        .join('')
-    : ''
-
-  return `<g>${stages}<g>${hides}${body}</g>${frames}</g>${popups}${hits}${eyes}`
+  return `<g>${stages}<g>${hides}${body}</g>${frames}</g>${popups}${hits}`
 }
 
 // The context window's fill, as a row of cells at the strip's far end:
@@ -333,18 +316,37 @@ function meter(context: ContextUsage | null): string {
   const labelX = IS_LEFT ? barStart - 6 : barStart + barW + 6
   out += `<text x="${labelX}" y="${y + 8}" font-size="10" fill="${GREY}" text-anchor="${anchor}">ctx</text>`
 
+  // The rate-limit windows on a row above: the five-hour one as a battery,
+  // the week as seven cells, one per day.
+  const limits: string[] = []
+  const top = y - 13
   if (context.limitPercent !== undefined) {
     const used = Math.max(0, Math.min(100, context.limitPercent))
     const tint = meterColor(used)
-    const caseX = IS_LEFT ? inward(labelX, 24 + 20) : inward(labelX, 24)
-    // A battery: its case, its tip, and the used share filled in.
-    out +=
-      `<rect x="${caseX}" y="${y}" width="18" height="8" fill="none" stroke="${GREY}" stroke-opacity="0.6"/>` +
-      `<rect x="${caseX + 18}" y="${y + 2}" width="2" height="4" fill="${GREY}" fill-opacity="0.6"/>` +
-      `<rect x="${caseX + 2}" y="${y + 2}" width="${Math.round((14 * used) / 100)}" height="4" fill="${tint}"/>` +
-      `<text x="${IS_LEFT ? caseX - 4 : caseX + 24}" y="${y + 8}" font-size="10" fill="${used >= 70 ? tint : '#B8B8B4'}" text-anchor="${anchor}">${Math.round(used)}%</text>` +
-      `<text x="${IS_LEFT ? caseX - 30 : caseX + 50}" y="${y + 8}" font-size="10" fill="${GREY}" text-anchor="${anchor}">5h</text>`
+    limits.push(
+      `<text x="0" y="8" font-size="8" fill="${GREY}">5h</text>` +
+        `<rect x="14" y="1" width="18" height="7" fill="none" stroke="${GREY}" stroke-opacity="0.6"/>` +
+        `<rect x="32" y="3" width="2" height="3" fill="${GREY}" fill-opacity="0.6"/>` +
+        `<rect x="16" y="3" width="${Math.round((14 * used) / 100)}" height="3" fill="${tint}"/>` +
+        `<text x="38" y="8" font-size="8" fill="${used >= 70 ? tint : '#B8B8B4'}">${Math.round(used)}%</text>`,
+    )
   }
+  if (context.weekPercent !== undefined) {
+    const used = Math.max(0, Math.min(100, context.weekPercent))
+    const tint = meterColor(used)
+    const days = Math.round((used / 100) * 7)
+    let cells = ''
+    for (let i = 0; i < 7; i++) {
+      cells += `<rect x="${14 + i * 6}" y="1" width="5" height="7" fill="${i < days ? tint : GREY}" opacity="${i < days ? 1 : 0.22}"/>`
+    }
+    limits.push(`<text x="0" y="8" font-size="8" fill="${GREY}">7d</text>${cells}<text x="58" y="8" font-size="8" fill="${used >= 70 ? tint : '#B8B8B4'}">${Math.round(used)}%</text>`)
+  }
+  // Each block is about 60px wide; they sit end to end, from the far end.
+  const blockW = 72
+  limits.forEach((block, i) => {
+    const x = IS_LEFT ? end - (limits.length - i) * blockW + 4 : end + i * blockW
+    out += `<g transform="translate(${x} ${top})">${block}</g>`
+  })
 
   return out
 }
@@ -739,9 +741,6 @@ const SCENES: Record<Mood, (view: View) => string> = {
   compacting,
 }
 
-// The moods in which the pet stands facing us, so its eyes can follow the
-// pointer.
-const FACING: Mood[] = ['idle', 'nod']
 
 export function svg(mood: Mood, width: number, view: View = DEFAULT_VIEW): string {
   layout(view, width)
@@ -753,7 +752,7 @@ export function svg(mood: Mood, width: number, view: View = DEFAULT_VIEW): strin
     (view.hasPile ? pile(view.context, mood === 'compacting') : '') +
     (view.hasMeter ? meter(view.context) : '') +
     minis(view.agents, view.hasPile) +
-    clickable(SCENES[mood](view), FACING.includes(mood)) +
+    clickable(SCENES[mood](view)) +
     (view.isNight ? night() : '') +
     `</g></svg>`
   )

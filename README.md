@@ -4,7 +4,7 @@ A tiny pixel-art pet for Claude Code. It lives in a thin strip just above the pr
 
 | Mood | When | What it does |
 | --- | --- | --- |
-| idle | nothing is running | stands on its spot, breathing, blinking, glancing at the prompt; its eyes follow your pointer |
+| idle | nothing is running | stands on its spot, breathing, blinking, glancing at the prompt |
 | working | a turn is running | the mascot's own routine: pulls out a laptop, hops, and types; the terminal window above the laptop names what Claude is doing (`read`, `bash`, `edit`, `web`, `agent`, ...) |
 | intense | a turn has run for over a minute | the same, frantic: faster keys, a sweat drop, the terminal racing |
 | attention | Claude is waiting on you: a permission, a question, a plan to approve | faces the prompt and bounces with a `?` over it, until the tool goes ahead |
@@ -18,9 +18,9 @@ A tiny pixel-art pet for Claude Code. It lives in a thin strip just above the pr
 
 While subagents run, a mini pet types beside the pile for each of them (three at most, then a count). Between 22:00 and 06:00 on the machine's clock the strip dims and a crescent moon hangs over the stage.
 
-It stands at one end of the strip, on a floor line, with a shadow under it. Click it and it does one of five things at random: hops with a heart, spins right round, startles with a "!", dances to a note, or waves. Those reactions, and the eyes that follow the pointer, live inside the drawing (SMIL and CSS hear the pointer; the hit areas take turns being the visible one, so the pick is luck), so they run in the desktop app only.
+It stands at one end of the strip, on a floor line, with a shadow under it. Click it and it does one of five things at random: hops with a heart, spins right round, startles with a "!", dances to a note, or waves. Those reactions live inside the drawing (SMIL hears the click; the hit area is a band of stripes sliding across the stage, two per reaction, so the pick is luck), so they run in the desktop app only.
 
-The session's context window shows twice. Beside the pet, an in-tray: a pile of papers that grows with the context, under a dashed line where 100% is; the sheets near the top turn amber past 70% and red past 90%, and past 90% the pile sways. At the other end of the strip, a meter: twenty cells and the percentage, in the same colours, and before it, where the account has one, the five-hour rate-limit window as a battery. All of it is read off the session when it starts, after each tool call, at the end of each turn and after a compaction. The terminal draws the meter in block characters.
+The session's context window shows twice. Beside the pet, an in-tray: a pile of papers that grows with the context, under a dashed line where 100% is; the sheets near the top turn amber past 70% and red past 90%, and past 90% the pile sways. At the other end of the strip, a meter: twenty cells and the percentage, in the same colours, and above it, where the account has them, the rate-limit windows: the five-hour one as a battery, the week as seven cells, one per day. All of it is read off the session when it starts, after each tool call, at the end of each turn and after a compaction. The terminal draws the meter in block characters.
 
 ## Options
 

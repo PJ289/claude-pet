@@ -36,7 +36,10 @@ function engine(on: On) {
     value: {
       startedAt: 0,
       context: { tokens: 74000, window: 200000, percent: 37 },
-      rateLimits: [{ kind: 'five_hour', percentUsed: 41, source: 'api' }],
+      rateLimits: [
+        { kind: 'five_hour', percentUsed: 41, source: 'api' },
+        { kind: 'seven_day', percentUsed: 43, source: 'api' },
+      ],
     },
   }))
   on('agent.list', () => ({ value: [] }))
@@ -128,9 +131,10 @@ test('the options place and size the pet', { options: { size: '4', side: 'right'
   const art = await ui.find({ type: 'Svg' })
   // Four pixels per art pixel: the strip is 14 rows of 4 plus 4.
   expect(art?.props.height).toBe(60)
-  // No pile, so no 100% line; the battery rides along with the meter.
+  // No pile, so no 100% line; the battery and the week ride along with the meter.
   expect(String(art?.props.source)).not.toContain('>100%<')
   expect(String(art?.props.source)).toContain('>41%<')
+  expect(String(art?.props.source)).toContain('>43%<')
   await ui.unmount()
 })
 

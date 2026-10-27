@@ -12,9 +12,9 @@ export type Mood =
   | 'compacting'
 
 // The session's context window, as last read: tokens in use, the window's
-// size, the one over the other as a whole percentage, and the five-hour
-// rate-limit window's use where the account has one.
-export type ContextUsage = { percent: number; tokens: number; window: number; limitPercent?: number }
+// size, the one over the other as a whole percentage, and the five-hour and
+// seven-day rate-limit windows' use where the account has them.
+export type ContextUsage = { percent: number; tokens: number; window: number; limitPercent?: number; weekPercent?: number }
 
 declare module 'claude-code' {
   interface PluginState {

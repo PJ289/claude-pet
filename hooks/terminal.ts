@@ -193,6 +193,12 @@ export function cells(frame: Frame, columns: number, context: ContextUsage | nul
     write(words, columns, 2, col + 4, '\u2588'.repeat(filled), meterColor(percent))
     write(words, columns, 2, col + 4 + filled, '\u2591'.repeat(METER_CELLS - filled), DIM)
     write(words, columns, 2, col + 4 + METER_CELLS, ` ${String(percent).padStart(3)}%`, percent >= 70 ? meterColor(percent) : TEXT)
+    // The rate-limit windows on the row beneath: "5h 41%  7d 43%".
+    const windows = [
+      ...(context.limitPercent === undefined ? [] : [`5h ${Math.round(context.limitPercent)}%`]),
+      ...(context.weekPercent === undefined ? [] : [`7d ${Math.round(context.weekPercent)}%`]),
+    ]
+    if (windows.length > 0) write(words, columns, 3, col + 4, windows.join('  '), TEXT)
   }
 
   return base64(words)
