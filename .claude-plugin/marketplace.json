@@ -1,0 +1,6 @@
+{
+  "name": "pixel-pet",
+  "description": "A tiny pixel-art pet for Claude Code",
+  "owner": { "name": "pj289" },
+  "plugins": [{ "name": "pixel-pet", "source": "./" }]
+}
