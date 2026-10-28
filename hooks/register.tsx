@@ -217,10 +217,10 @@ export const register: Register = (on, options) => {
 
     await refreshContext($)
     await refreshNight($)
-    $.clock.every(30_000, () => {
-      void dozeOff($)
-      void refreshContext($)
-    })
+    $.clock.every(30_000, () => void dozeOff($))
+    // The windows come off the last API response: read often, written
+    // only on a change, so the cost is one local read.
+    $.clock.every(10_000, () => void refreshContext($))
     $.clock.every(5 * 60_000, () => void refreshNight($))
     if (e.surface === 'terminal') {
       $.clock.every(TICK_MS, () => void paint($))
@@ -339,6 +339,8 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined) {
       await finish($, e.reason === 'answer', e.durationMs)
       await refreshContext($)
+      // The last response's headers may land after this event: read again.
+      $.clock.after(2000, () => void refreshContext($))
     }
     await refreshAgents($)
 
