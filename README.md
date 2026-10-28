@@ -70,7 +70,7 @@ git clone https://github.com/PJ289/claude-pet ~/claude-pet
 ~/claude-pet/scripts/desktop-ssh-fix.sh
 ```
 
-Then open a new SSH session from the app. The script finds the app's copy of pixel-pet and adds `hooks/`, `types/` and `tsconfig.json` from the clone; run it again if the app re-syncs and the pet goes missing, and `git pull` in `~/claude-pet` first to update. The app has to have connected to the host at least once (so the copy exists), and the plugin has to be saved and enabled in the app.
+Then open a new SSH session from the app. The script finds every copy of pixel-pet the app has synced and adds `hooks/`, `types/` and `tsconfig.json` from the clone. The app keeps one copy per project, made when you first open a session in that project, so for each new project: open a session in it once, run the script, open a new session. Run it again whenever the app re-syncs (a plugin saved again in the app, for one) and the pet goes missing, and `git pull` in `~/claude-pet` first to update. The plugin has to be saved and enabled in the app.
 
 ### Cloud sessions
 
