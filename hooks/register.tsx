@@ -15,8 +15,9 @@ const activity = atom({ plugin: 'pixel-pet', key: 'activity' } as const, null)
 const agents = atom({ plugin: 'pixel-pet', key: 'agents' } as const, 0)
 const isNight = atom({ plugin: 'pixel-pet', key: 'isNight' } as const, false)
 
-const MOODS: Mood[] = ['idle', 'working', 'intense', 'attention', 'puzzled', 'nod', 'happy', 'elated', 'dizzy', 'sleeping', 'compacting']
-const BUSY: Mood[] = ['working', 'intense', 'attention', 'puzzled']
+const MOODS: Mood[] = ['idle', 'working', 'intense', 'attention', 'puzzled', 'nod', 'happy', 'elated', 'dizzy', 'sleeping', 'compacting', 'sending', 'receiving']
+const BUSY: Mood[] = ['working', 'intense', 'attention', 'puzzled', 'sending', 'receiving']
+const MAIL_MS = 2600
 
 const TICK_MS = 150
 const NOD_MS = 1600
@@ -40,7 +41,10 @@ const pet: {
   workStart: number
   // `/pet mood` holds a mood against the automatic changes; `/pet demo` too.
   isPinned: boolean
-  timers: { calm?: Timer; intense?: Timer; puzzled?: Timer; demo?: Timer }
+  timers: { calm?: Timer; intense?: Timer; puzzled?: Timer; demo?: Timer; mail?: Timer }
+  // Whether a turn of the main conversation runs, so a reaction knows what
+  // to go back to.
+  isTurnRunning: boolean
   // The terminal band's Raster, repainted on a timer while it is mounted.
   band: { requestId: string; columns: number } | null
   walker: Walker | null
@@ -53,6 +57,7 @@ const pet: {
   workStart: 0,
   isPinned: false,
   timers: {},
+  isTurnRunning: false,
   band: null,
   walker: null,
   lastDraw: null,
@@ -86,6 +91,7 @@ async function workingMood($: EngineInterface): Promise<Mood> {
 // typing gets frantic.
 async function wake($: EngineInterface) {
   pet.lastActivity = await $.clock.now()
+  pet.isTurnRunning = true
   if (BUSY.includes(pet.shown)) return
   pet.workStart = pet.lastActivity
   cancel('calm', 'intense', 'puzzled')
@@ -100,10 +106,21 @@ async function resume($: EngineInterface) {
   if (pet.shown === 'attention' || pet.shown === 'puzzled') await settle($, await workingMood($))
 }
 
+// A message to or from another session: the envelope, then back to whatever
+// the session was doing.
+async function mail($: EngineInterface, mood: Mood) {
+  cancel('mail')
+  pet.timers.mail = $.clock.after(MAIL_MS, async () => {
+    if (pet.shown === mood) await settle($, pet.isTurnRunning ? await workingMood($) : 'idle')
+  })
+  await settle($, mood)
+}
+
 // The turn ended: a nod, a jump or a bigger one by how long it took, or a
 // shake of the head for a cut.
 async function finish($: EngineInterface, isAnswered: boolean, durationMs: number) {
   pet.lastActivity = await $.clock.now()
+  pet.isTurnRunning = false
   cancel('calm', 'intense', 'puzzled')
   await update($, activity, () => null)
   const reaction: Mood = !isAnswered ? 'dizzy' : durationMs < SHORT_TURN_MS ? 'nod' : durationMs < LONG_TURN_MS ? 'happy' : 'elated'
@@ -160,6 +177,7 @@ function activityOf(tool: string): string {
   if (['WebSearch', 'WebFetch'].includes(tool)) return 'web'
   if (tool === 'Agent' || tool === 'Task') return 'agent'
   if (tool === 'AskUserQuestion') return 'ask'
+  if (tool === 'SendMessage') return 'send'
   if (['TodoWrite', 'TaskCreate', 'TaskUpdate'].includes(tool)) return 'plan'
   if (tool.startsWith('mcp__')) return 'mcp'
 
@@ -349,6 +367,21 @@ export const register: Register = (on, options) => {
 
   // While the main conversation compacts, the pet stomps the pile down;
   // a precompute installs nothing and shows nothing.
+  // Mail between sessions: a message leaving the main conversation, or one
+  // arriving from another session's model.
+  on('session.send', async ($, e, next) => {
+    if (e.agentId === undefined) await mail($, 'sending')
+
+    return next(e)
+  })
+
+  on('session.receive', async ($, e, next) => {
+    const isPeer = e.origin.kind === 'peer' || e.origin.kind === 'coordinator' || e.origin.kind === 'peer-send-message'
+    if (e.agentId === undefined && isPeer) await mail($, 'receiving')
+
+    return next(e)
+  })
+
   on('session.compact', async ($, e, next) => {
     const isShown = e.agentId === undefined && e.trigger !== 'precompute'
     const before = pet.shown

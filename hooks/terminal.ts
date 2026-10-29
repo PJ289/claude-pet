@@ -113,6 +113,10 @@ export function step(walker: Walker, mood: Mood): Frame {
       return { grid: elapsed % 6 === 2 ? front('closed') : STAND, glyph: null, dx: 0 }
     case 'elated':
       return { grid: loop(JUMP, elapsed), glyph: '*', dx: 0 }
+    case 'sending':
+      return { grid: elapsed % 17 < 3 ? STRETCH : STAND, glyph: elapsed % 17 < 12 ? '\u2709' : null, dx: 0 }
+    case 'receiving':
+      return { grid: elapsed % 17 === 5 ? CROUCH : STAND, glyph: elapsed % 17 > 4 ? '\u2709' : null, dx: 0 }
     case 'working':
     case 'intense': {
       const intro = sequence(INTRO, elapsed)

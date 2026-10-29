@@ -10,6 +10,8 @@ export type Mood =
   | 'dizzy'
   | 'sleeping'
   | 'compacting'
+  | 'sending'
+  | 'receiving'
 
 // The session's context window, as last read: tokens in use, the window's
 // size, the one over the other as a whole percentage, and the five-hour and

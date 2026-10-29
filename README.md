@@ -15,6 +15,8 @@ A tiny pixel-art pet for Claude Code. It lives in a thin strip just above the pr
 | dizzy | a turn was interrupted or failed | shakes its head |
 | sleeping | nothing has happened for 5 minutes | sits down, shuts its eyes and snores; at night, in a nightcap |
 | compacting | the conversation is being compacted (`/compact` or automatic) | walks over to the in-tray, hops on and stomps the pile down, dust flying, until it is done |
+| sending | a message leaves for another session or agent | an envelope comes out, the pet throws it and it sails off the stage |
+| receiving | a message arrives from another session's model | the envelope sails in and lands at its feet, it starts, then opens it |
 
 While subagents run, a mini pet types beside the pile for each of them (three at most, then a count). Between 22:00 and 06:00 on the machine's clock the strip dims and a crescent moon hangs over the stage.
 

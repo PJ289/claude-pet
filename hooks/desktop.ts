@@ -697,6 +697,62 @@ function happy(isElated: boolean): string {
   )
 }
 
+// An envelope, sealed and open, as small grids drawn with the palette.
+const ENVELOPE = ['WWWWWWWWW', 'WcWWWWWcW', 'WWcWWWcWW', 'WWWcccWWW', 'WWWWOWWWW', 'WWWWWWWWW']
+const OPENED = ['..WWWWW..', '..WcccW..', '..WcWWW..', 'WWWWWWWWW', 'W.......W', 'WWWWWWWWW']
+
+// A message leaves for another session: the envelope comes out, the pet
+// throws it and it sails off the stage, the pet watching it go.
+function sending(): string {
+  const flight = IS_LEFT ? 110 : -110
+  const envelope =
+    `<g transform="translate(${px(13)} ${px(4)})" opacity="0">` +
+    `<animate attributeName="opacity" values="0;1;1;1;0;0" keyTimes="0;0.1;0.35;0.8;0.9;1" dur="2.6s" repeatCount="indefinite"/>` +
+    `<animateTransform attributeName="transform" type="translate" values="0 6;0 0;0 0;${fmt(flight * 0.5)} -14;${fmt(flight)} -4;${fmt(flight)} -4" keyTimes="0;0.15;0.35;0.55;0.8;1" dur="2.6s" calcMode="spline" keySplines="0.2 0.8 0.4 1;0 0 1 1;0.3 0.7 0.5 1;0.5 0 0.9 0.5;0 0 1 1" repeatCount="indefinite" additive="sum"/>` +
+    `<animateTransform attributeName="transform" type="rotate" values="0;0;-12;8;8" keyTimes="0;0.35;0.55;0.8;1" dur="2.6s" repeatCount="indefinite" additive="sum"/>` +
+    `${rects(ENVELOPE)}</g>`
+
+  return (
+    shadow(12, 5.5) +
+    stage(
+      clip([
+        { grid: STAND, ms: 900 },
+        { grid: STRETCH, ms: 300 },
+        { grid: front(IS_LEFT ? 1 : -1), ms: 1000 },
+        { grid: STAND, ms: 400 },
+      ]) + envelope,
+    )
+  )
+}
+
+// A message arrives from another session: the envelope sails in, lands
+// at the pet's feet, it starts, then opens it.
+function receiving(): string {
+  const from = IS_LEFT ? 110 : -110
+  const envelope =
+    `<g transform="translate(${px(IS_LEFT ? 19 : 0)} ${px(6)})">` +
+    `<animateTransform attributeName="transform" type="translate" values="${fmt(from)} -12;${fmt(from * 0.5)} -16;0 0;0 0" keyTimes="0;0.15;0.3;1" dur="2.6s" calcMode="spline" keySplines="0 0 1 1;0.5 0 0.9 0.5;0 0 1 1" repeatCount="indefinite" additive="sum"/>` +
+    `<g>${rects(ENVELOPE)}${discrete([1, 1, 0], [0, 0.5, 1], 2.6)}</g>` +
+    `<g opacity="0">${rects(OPENED)}${discrete([0, 1], [0, 0.5], 2.6)}</g>` +
+    `</g>`
+
+  return (
+    shadow(12, 5.5) +
+    stage(
+      `<g><animateTransform attributeName="transform" type="translate" values="0 0;0 0;0 -5;0 0;0 0" keyTimes="0;0.3;0.38;0.46;1" dur="2.6s" repeatCount="indefinite"/>` +
+        clip([
+          { grid: STAND, ms: 780 },
+          { grid: CROUCH, ms: 200 },
+          { grid: front(IS_LEFT ? 1 : -1), ms: 1400 },
+          { grid: STAND, ms: 220 },
+        ]) +
+        `</g>` +
+        `<g transform="translate(${px(15)} 0)" opacity="0">${discrete([0, 1, 0], [0, 0.3, 0.6], 2.6)}${glyph(BANG, BODY)}</g>` +
+        envelope,
+    )
+  )
+}
+
 // The turn was cut short: a shake of the head.
 function dizzy(): string {
   return (
@@ -773,6 +829,8 @@ const SCENES: Record<Mood, (view: View) => string> = {
   dizzy,
   sleeping,
   compacting,
+  sending,
+  receiving,
 }
 
 

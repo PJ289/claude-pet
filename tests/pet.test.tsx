@@ -157,3 +157,20 @@ test('a failed tool call puzzles the pet, a question holds its attention', async
   expect(String((await puzzled.find({ type: 'Svg' }))?.props.alt)).toContain('puzzled')
   await puzzled.unmount()
 })
+
+test('mail to or from another session shows the envelope', async ($, on) => {
+  engine(on)
+  const moods: unknown[] = []
+  on('state.set', ($, e, next) => {
+    if (e.key === 'mood') moods.push(e.value)
+
+    return next(e)
+  })
+  on('session.send', () => ({ isDelivered: true }))
+  on('session.receive', (_, e) => ({ text: e.text }))
+  await $.session.start({ cwd: '/', surface: null, isInteractive: true })
+
+  await $.session.send({ to: 'other', text: 'hello', origin: { kind: 'plugin', name: 'test' } })
+  await $.session.receive({ origin: { kind: 'peer' }, text: 'hi back' })
+  expect(moods).toEqual(['sending', 'receiving'])
+})
