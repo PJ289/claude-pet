@@ -1,4 +1,4 @@
-import type { On, SessionMessage } from 'claude-code'
+import type { On, SessionMessage, SessionUsage } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 const BAND = {
@@ -25,7 +25,46 @@ type Drawn = { children?: { props?: Record<string, unknown> }[] }
 const first = (tree: unknown) => (tree as Drawn).children?.[0]?.props
 const second = (tree: unknown) => (tree as Drawn).children?.[1]?.props
 
-function engine(on: On) {
+// What the session answers for its usage: 74k tokens of a 200k model
+// window, measured against `compactionWindow` when the call asked for the
+// breakdown and one is set.
+function usageOf(compactionWindow: number | undefined): SessionUsage {
+  return {
+    startedAt: 0,
+    context: {
+      tokens: 74000,
+      window: 200000,
+      percent: 37,
+      ...(compactionWindow === undefined
+        ? {}
+        : {
+            breakdown: {
+              categories: [],
+              totalTokens: 74000,
+              maxTokens: compactionWindow,
+              rawMaxTokens: compactionWindow,
+              autocompactSource: 'settings',
+              percentage: Math.round((100 * 74000) / compactionWindow),
+              gridRows: [],
+              model: 'test',
+              memoryFiles: [],
+              mcpTools: [],
+              agents: [],
+              isAutoCompactEnabled: true,
+              apiUsage: null,
+            },
+          }),
+    },
+    rateLimits: [
+      { kind: 'five_hour', percentUsed: 41 },
+      { kind: 'seven_day', percentUsed: 43 },
+    ],
+  }
+}
+
+// `compactionWindow` is the smaller window the session measures its fill
+// against when one is set; absent, the fill is over the model's window.
+function engine(on: On, compactionWindow?: number) {
   // Nothing sits beneath the plugin: each hook here stands for the engine.
   mock.clock(on)
   mock.store(on)
@@ -38,17 +77,9 @@ function engine(on: On) {
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('command.run', () => ({}))
-  on('session.usage', () => ({
-    value: {
-      startedAt: 0,
-      context: { tokens: 74000, window: 200000, percent: 37 },
-      rateLimits: [
-        { kind: 'five_hour', percentUsed: 41, source: 'api' },
-        { kind: 'seven_day', percentUsed: 43, source: 'api' },
-      ],
-    },
-  }))
+  on('session.usage', (_, e) => ({ value: usageOf(e.breakdown !== undefined ? compactionWindow : undefined) }))
   on('agent.list', () => ({ value: [] }))
+  on('session.surfaces', () => ({ value: ['desktop'] }))
 }
 
 test('the pet draws on the terminal and on the desktop', async ($, on) => {
@@ -69,6 +100,19 @@ test('the pet draws on the terminal and on the desktop', async ($, on) => {
   const meter = second(await desktop.drawn())
   expect(String(meter?.source)).toContain('>37%<')
   await desktop.unmount()
+})
+
+test('the meter measures the fill against the compaction window', async ($, on) => {
+  engine(on, 100000)
+  await $.session.start({ cwd: '/', surface: null, isInteractive: true })
+
+  // 74k tokens over a 100k compaction window, not over the model's 200k.
+  const desktop = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(String(second(await desktop.drawn())?.source)).toContain('>74%<')
+  await desktop.unmount()
+
+  const status = await $.command.run({ command: 'pet', args: 'status', ...TYPED })
+  expect(String((status as { text?: string }).text)).toContain('74% of 100k (compaction window)')
 })
 
 test('the pet works while a turn runs and cheers when it ends', async ($, on) => {

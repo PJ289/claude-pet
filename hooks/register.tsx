@@ -50,6 +50,10 @@ const pet: {
   walker: Walker | null
   // The last time the band was asked to draw, for `/pet status`.
   lastDraw: { surface: string; at: number } | null
+  // The window the fill is measured against: the compaction window where
+  // one is set (an env variable, the settings, the account), else the
+  // model's; null until the session reports one.
+  window: number | null
   view: Pick<View, 'scale' | 'side' | 'hasMeter' | 'hasPile'>
 } = {
   shown: 'idle',
@@ -61,6 +65,7 @@ const pet: {
   band: null,
   walker: null,
   lastDraw: null,
+  window: null,
   view: { scale: 3, side: 'left', hasMeter: true, hasPile: true },
 }
 
@@ -136,6 +141,18 @@ async function dozeOff($: EngineInterface) {
   if (pet.shown === 'idle' && now - pet.lastActivity > SLEEP_AFTER_MS) await settle($, 'sleeping')
 }
 
+// Reads which window the session measures its context against: the
+// compaction window /context reports, where one is smaller than the
+// model's. A summary breakdown is estimated locally and sends nothing.
+async function measureWindow($: EngineInterface) {
+  try {
+    const usage = await $.session.usage({ breakdown: 'summary' })
+    pet.window = usage.context.breakdown?.rawMaxTokens ?? null
+  } catch {
+    pet.window = null
+  }
+}
+
 // Reads the context window's fill, and the rate-limit windows', off the
 // session and keeps them for the meter; the sites drawing it redraw on
 // their own.
@@ -143,10 +160,15 @@ async function refreshContext($: EngineInterface) {
   const usage = await $.session.usage()
   const limit = usage.rateLimits.find(window => window.kind === 'five_hour')
   const week = usage.rateLimits.find(window => window.kind === 'seven_day')
+  const window = pet.window ?? usage.context.window
+  const tokens = usage.context.tokens
+  // The fill is the last response's tokens over the window measured against,
+  // as /context has it; the engine's own percent is over the model's window.
+  const percent = tokens === undefined || window <= 0 ? (usage.context.percent ?? 0) : Math.round((100 * tokens) / window)
   const next: ContextUsage = {
-    percent: usage.context.percent ?? 0,
-    tokens: usage.context.tokens ?? 0,
-    window: usage.context.window,
+    percent,
+    tokens: tokens ?? 0,
+    window,
     ...(limit === undefined ? {} : { limitPercent: Math.round(limit.percentUsed) }),
     ...(week === undefined ? {} : { weekPercent: Math.round(week.percentUsed) }),
   }
@@ -233,9 +255,13 @@ export const register: Register = (on, options) => {
       immediate: true,
     })
 
+    await measureWindow($)
     await refreshContext($)
     await refreshNight($)
     $.clock.every(30_000, () => void dozeOff($))
+    // The window moves with /model or a settings change: re-measured now
+    // and then, and after each turn.
+    $.clock.every(60_000, () => void measureWindow($))
     // The windows come off the last API response: read often, written
     // only on a change, so the cost is one local read.
     $.clock.every(10_000, () => void refreshContext($))
@@ -260,7 +286,7 @@ export const register: Register = (on, options) => {
         text: [
           `Surfaces: ${surfaces.length === 0 ? 'none' : surfaces.join(', ')}`,
           `Hidden: ${await read($, isHidden)}; mood: ${pet.shown}${pet.isPinned ? ' (pinned)' : ''}; agents: ${await read($, agents)}`,
-          `Context: ${usage?.percent ?? '?'}%${usage?.limitPercent === undefined ? '' : `; 5h window: ${usage.limitPercent}%`}${usage?.weekPercent === undefined ? '' : `; 7d window: ${usage.weekPercent}%`}`,
+          `Context: ${usage?.percent ?? '?'}% of ${usage === null ? '?' : `${Math.round(usage.window / 1000)}k`}${pet.window === null ? '' : ' (compaction window)'}${usage?.limitPercent === undefined ? '' : `; 5h window: ${usage.limitPercent}%`}${usage?.weekPercent === undefined ? '' : `; 7d window: ${usage.weekPercent}%`}`,
           drawn === null
             ? 'The band above the prompt has not been asked to draw yet.'
             : `Last drawn on ${drawn.surface}, ${ago}s ago.`,
@@ -356,6 +382,7 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) {
       await finish($, e.reason === 'answer', e.durationMs)
+      await measureWindow($)
       await refreshContext($)
       // The last response's headers may land after this event: read again.
       $.clock.after(2000, () => void refreshContext($))
