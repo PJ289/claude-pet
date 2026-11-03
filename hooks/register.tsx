@@ -45,6 +45,9 @@ const pet: {
   // Whether a turn of the main conversation runs, so a reaction knows what
   // to go back to.
   isTurnRunning: boolean
+  // The permission dialogs put to the person and not yet answered, each by
+  // the tool and the loop (a subagent's, or the main one) that raised it.
+  asks: { tool: string; agentId: string | undefined }[]
   // The terminal band's Raster, repainted on a timer while it is mounted.
   band: { requestId: string; columns: number } | null
   walker: Walker | null
@@ -62,6 +65,7 @@ const pet: {
   isPinned: false,
   timers: {},
   isTurnRunning: false,
+  asks: [],
   band: null,
   walker: null,
   lastDraw: null,
@@ -343,8 +347,12 @@ export const register: Register = (on, options) => {
       if (tool === 'AskUserQuestion' || tool === 'ExitPlanMode') await settle($, 'attention')
     }
     const ran = await next(e)
+    // A permission dialog this call raised has been answered by now, in
+    // whichever loop it ran: with the last one gone, back to the typing.
+    const asked = pet.asks.findIndex(ask => ask.tool === tool && ask.agentId === e.agentId)
+    if (asked >= 0) pet.asks.splice(asked, 1)
+    if (isMain || (asked >= 0 && pet.asks.length === 0)) await resume($)
     if (isMain) {
-      await resume($)
       if (ran.isError === true && !('deny' in ran)) {
         cancel('puzzled')
         pet.timers.puzzled = $.clock.after(PUZZLED_MS, () => void resume($))
@@ -357,13 +365,15 @@ export const register: Register = (on, options) => {
     return ran
   })
 
-  // The permission check: a verdict that asks you is a wait, until the
-  // tool goes ahead (its progress shows) or the call comes back.
-  on('tool.check', async ($, e, next) => {
-    const verdict = await next(e)
-    if (e.agentId === undefined && verdict.decision === 'ask' && BUSY.includes(pet.shown)) await settle($, 'attention')
+  // The dialog is about to be shown: only then is anyone waiting on the
+  // person. (A `tool.check` verdict of `ask` is decided before the mode
+  // settles it, so most of those never reach a dialog.)
+  on('classic.PermissionRequest', async ($, e, next) => {
+    pet.asks.push({ tool: e.tool_name, agentId: e.agent_id })
+    await wake($)
+    await settle($, 'attention')
 
-    return verdict
+    return next(e)
   })
 
   on('ui.render', { component: 'ToolProgress' }, async ($, e, next) => {
@@ -381,6 +391,7 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) {
+      pet.asks = []
       await finish($, e.reason === 'answer', e.durationMs)
       await measureWindow($)
       await refreshContext($)

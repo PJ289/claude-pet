@@ -7,7 +7,7 @@ A tiny pixel-art pet for Claude Code. It lives in a thin strip just above the pr
 | idle | nothing is running | stands on its spot, breathing, blinking, glancing at the prompt |
 | working | a turn is running | the mascot's own routine: pulls out a laptop, hops, and types; the terminal window above the laptop names what Claude is doing (`read`, `bash`, `edit`, `web`, `agent`, ...) |
 | intense | a turn has run for over a minute | the same, frantic: faster keys, a sweat drop, the terminal racing |
-| attention | Claude is waiting on you: a permission, a question, a plan to approve | faces the prompt and bounces with a `?` over it, until the tool goes ahead |
+| attention | Claude is waiting on you: a permission dialog (the main conversation's or a subagent's), a question, a plan to approve | faces the prompt and bounces with a `?` over it, until the tool goes ahead |
 | puzzled | a tool call failed | scratches its head for a moment, then back to typing |
 | nod | a turn under 15 seconds finished | a nod and a blink |
 | happy | a turn finished with an answer | a real jump, crouch, stretch and land, with confetti |

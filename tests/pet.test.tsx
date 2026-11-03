@@ -191,6 +191,26 @@ test('the options place and size the pet', { options: { size: '4', side: 'right'
   await ui.unmount()
 })
 
+test("a permission dialog holds the pet's attention until the tool goes ahead, in a subagent too", async ($, on) => {
+  engine(on)
+  on('tool.call', () => ({ result: {} }))
+  on('classic.PermissionRequest', () => ({}))
+  await $.session.start({ cwd: '/', surface: null, isInteractive: true })
+  await $.tool.call({ tool: 'Read', file_path: '/x' })
+
+  // A subagent's Bash call puts a dialog to the person.
+  await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' }, agent_id: 'a1' })
+  const asking = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(String((await asking.find({ type: 'Svg' }))?.props.alt)).toContain('attention')
+  await asking.unmount()
+
+  // Answered: the call runs, and the pet is back at the keyboard.
+  await $.tool.call({ tool: 'Bash', command: 'ls', agentId: 'a1' })
+  const typing = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(String((await typing.find({ type: 'Svg' }))?.props.alt)).toContain('working')
+  await typing.unmount()
+})
+
 test('a failed tool call puzzles the pet, a question holds its attention', async ($, on) => {
   engine(on)
   on('tool.call', (_, e) => (e.tool === 'Bash' ? { result: {}, isError: true, text: 'boom' } : { result: {} }))
